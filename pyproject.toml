@@ -1,0 +1,53 @@
+[project]
+name = "klo-local"
+version = "0.1.0"
+description = "Open-source local computer-use agent for Mac and Chrome."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "anthropic>=0.70.0",
+  "beautifulsoup4>=4.12.0",
+  "browser-use>=0.12.0",
+  "fastapi>=0.115.0",
+  "httpx>=0.27.0",
+  "openai>=1.0.0",
+  "pydantic-settings>=2.6.0",
+  "pyjwt[crypto]>=2.9.0",
+  # macOS-only deps. Markers keep non-Darwin installs from trying to
+  # install Apple framework bindings.
+  "pyobjc-framework-ApplicationServices>=11.0; sys_platform == 'darwin'",
+  "pyobjc-framework-Cocoa>=11.0; sys_platform == 'darwin'",
+  "pyobjc-framework-Quartz>=11.0; sys_platform == 'darwin'",
+  "pyobjc-framework-ScreenCaptureKit>=11.0; sys_platform == 'darwin'",
+  "pyobjc-framework-Vision>=11.0; sys_platform == 'darwin'",
+  "uvicorn[standard]>=0.32.0",
+  "websockets>=13.0",
+  "youtube-transcript-api>=1.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.3.0",
+  "pytest-asyncio>=0.24.0",
+  # PyInstaller bundles agent2.desktop_api into a single Mac executable so
+  # end users don't need uv/Python installed. Only needed at build time.
+  "pyinstaller>=6.10",
+]
+[project.scripts]
+klo = "cli.klo:main"
+klo-api = "agent2.desktop_api:main"
+klo-bench = "cli.bench:main"
+klo-desktop-api = "agent2.desktop_api:main"
+klo-doctor = "cli.doctor:entrypoint"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+pythonpath = ["."]
+
+[tool.setuptools.packages.find]
+include = ["agent2*", "api*", "cli*"]
+exclude = ["tests*", "web*"]
+
+[build-system]
+requires = ["setuptools>=75.0"]
+build-backend = "setuptools.build_meta"

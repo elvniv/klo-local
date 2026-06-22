@@ -1,0 +1,31 @@
+#!/bin/bash
+# klo-down — stop everything started by klo-up.
+
+echo "klo-down: stopping"
+
+# Stop in reverse order. Swift notch app first, then any leftover legacy
+# Electron UI (the Electron klo-agent-ui has been retired but kill it
+# anyway in case anything launched it manually), then the Python services.
+pkill -x KLO 2>/dev/null || true
+pkill -f "klo-agent-ui/node_modules/electron" 2>/dev/null || true
+pkill -f "Electron.app/Contents/MacOS/Electron .*klo-agent-ui" 2>/dev/null || true
+pkill -f "vite.*klo-agent-ui" 2>/dev/null || true
+pkill -f "agent2.desktop_api" 2>/dev/null || true
+pkill -f "agent2.bridge_server" 2>/dev/null || true
+
+# Free the ports
+for port in 8787 8767 5173; do
+  pids=$(lsof -ti :$port 2>/dev/null || true)
+  if [ -n "$pids" ]; then
+    echo "  freeing :$port (killing $pids)"
+    echo "$pids" | xargs kill -9 2>/dev/null || true
+  fi
+done
+
+sleep 0.5
+remaining=$(lsof -ti :8787 -ti :8767 -ti :5173 2>/dev/null | head -3)
+if [ -z "$remaining" ]; then
+  echo "klo-down: all clean"
+else
+  echo "klo-down: stragglers still on $remaining"
+fi

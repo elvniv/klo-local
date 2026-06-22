@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  klo DMG background — solid olive (#A8C152) with one straight
+  dotted arrow in cream pointing left → right.
+  Dots use stroke-dasharray="0 9" + round linecap to render as
+  circles rather than dashes.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 540 380" width="540" height="380">
+  <rect width="540" height="380" fill="#A8C152"/>
+
+  <!-- Dotted shaft -->
+  <line x1="200" y1="200" x2="310" y2="200"
+        stroke="#FBF8F2"
+        stroke-width="2.8"
+        stroke-linecap="round"
+        stroke-dasharray="0 9"/>
+
+  <!-- V-barb arrowhead, same cream + weight, leads out of the dots -->
+  <path d="M 308 192 L 320 200 L 308 208"
+        fill="none"
+        stroke="#FBF8F2"
+        stroke-width="2.8"
+        stroke-linecap="round"
+        stroke-linejoin="round"/>
+</svg>

@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Hardened-runtime exceptions klo needs:                            -->
+    <!-- - apple-events: drive scriptable apps via AppleScript reads.       -->
+    <!-- - automation: drive non-scriptable apps via AX (future).           -->
+    <key>com.apple.security.automation.apple-events</key>
+    <true/>
+    <!-- Microphone for Vapi voice mode (⌘⌘K). The WKWebView hosting the  -->
+    <!-- Vapi Web SDK records audio through this device.                   -->
+    <key>com.apple.security.device.audio-input</key>
+    <true/>
+    <!-- Outgoing network for Vapi (Daily.co WebRTC + Vapi REST) and the   -->
+    <!-- local agent on 127.0.0.1:8787.                                    -->
+    <key>com.apple.security.network.client</key>
+    <true/>
+</dict>
+</plist>

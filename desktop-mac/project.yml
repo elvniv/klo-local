@@ -1,0 +1,195 @@
+name: KLO
+options:
+  bundleIdPrefix: dev.klo.local
+  deploymentTarget:
+    macOS: "14.0"
+  developmentLanguage: en
+  groupSortPosition: top
+  generateEmptyDirectories: true
+settings:
+  base:
+    SWIFT_VERSION: "5.9"
+    MACOSX_DEPLOYMENT_TARGET: "14.0"
+    # Public builds use automatic/ad-hoc signing by default. Official KLO
+    # release builds can override this in a private release pipeline.
+    CODE_SIGN_STYLE: Automatic
+    DEVELOPMENT_TEAM: ""
+    CODE_SIGN_IDENTITY: "-"
+    PRODUCT_NAME: KLO
+    ENABLE_HARDENED_RUNTIME: YES
+    COMBINE_HIDPI_IMAGES: YES
+    # Pulls KLO/Assets.xcassets/AppIcon.appiconset into the .app bundle
+    # so KLO.app shows the klo wordmark in Finder, the Dock, and About.
+    ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+    # Apple Silicon only. Klo's Release archive used to build universal
+    # (arm64 + x86_64), but starting with the cua-driver dep (chunk 0,
+    # 2026-05-28), cua's Swift code triggers an internal compiler error
+    # on the x86_64 frontend even though arm64 builds cleanly. Limiting
+    # to arm64 also matches the install base — every Mac sold since Nov
+    # 2020 is Apple Silicon. Intel Macs are <1% of the plausible klo
+    # user base and supporting them isn't worth a workaround for cua.
+    # If we ever need Intel back, the workaround would be to gate the
+    # CuaDriverCore import behind #if arch(arm64).
+    ARCHS: arm64
+    ONLY_ACTIVE_ARCH: NO
+
+packages:
+  HotKey:
+    url: https://github.com/soffes/HotKey
+    from: "0.2.0"
+  Sparkle:
+    url: https://github.com/sparkle-project/Sparkle
+    from: "2.6.0"
+  # Markdown renderer for the chat panel — renders the model's
+  # **bold** / `code` / # headings / - lists / ```code blocks``` /
+  # > blockquotes / GFM tables as proper styled SwiftUI views, instead
+  # of showing literal asterisks/hashes. Same pattern OpenAI + Claude
+  # web labs use. Themed with klo's design tokens via
+  # KLO/Views/MarkdownChatTheme.swift.
+  MarkdownUI:
+    url: https://github.com/gonzalezreal/swift-markdown-ui
+    from: "2.4.0"
+  # OpenAI Realtime API client — VENDORED in-house from
+  # m1guelpf/swift-realtime-openai (MIT licensed) for supply-chain
+  # control. Source lives at desktop-mac/Packages/KLORealtime; see
+  # Packages/KLORealtime/Vendor-Attribution/README.md for the
+  # rationale + upgrade path. The product name (`RealtimeAPI`) is
+  # preserved so RealtimeBridge.swift's `import RealtimeAPI`
+  # resolves without any client-code changes.
+  KLORealtime:
+    path: Packages/KLORealtime
+  # cua-driver — background macOS computer-use primitives (CGEvent,
+  # ScreenCaptureKit-based window capture, AX element-index cache,
+  # focus suppression). MIT-licensed. Used to replace klo's
+  # MacOpsExecutor click/move/drag/screenshot path in a series of
+  # chunked migrations starting with chunk 0 (link only, no usage
+  # yet — confirms the package builds + notarizes inside klo before
+  # any swap-out work).
+  #
+  # CuaDriverCore is the only product we link — it has zero external
+  # dependencies (system frameworks only). CuaDriverServer pulls in
+  # MCP swift-sdk + we don't need it (we'll call Core's Swift API
+  # directly, no MCP stdio bridge).
+  cua:
+    url: https://github.com/trycua/cua
+    # Pinned to revision because the root-level Package.swift shim
+    # (which re-exports CuaDriverCore from libs/cua-driver/swift/) was
+    # only added at HEAD as of 2026-05-28 and hasn't been tagged yet.
+    # Their v0.1.13 tag doesn't have the shim, so SwiftPM can't
+    # resolve it via `from:`. Upgrade to `from: "0.1.14"` (or whatever
+    # they tag next that includes the shim) once a clean tag exists.
+    revision: 34ed56ad98db5fa3348251c71242abf557468ca7
+
+targets:
+  KLO:
+    type: application
+    platform: macOS
+    sources:
+      - path: KLO
+        excludes:
+          - "Info.plist"  # generated below; don't double-include
+    info:
+      path: KLO/Info.plist
+      properties:
+        # LSUIElement was true through iteration 7 (klo as agent app —
+        # no Dock icon, no Cmd-Tab presence). Dropped in iteration 8 so
+        # users have a familiar Dock affordance to bring klo forward
+        # or quit it. The notch panel is still a nonactivatingPanel so
+        # it doesn't grab keyboard focus when idle.
+        LSMinimumSystemVersion: "14.0"
+        NSHighResolutionCapable: true
+        # Bundle name shown to the user in Finder, Dock, About menu,
+        # Activity Monitor, Notification Center, and Spotlight. Lowercase
+        # "klo" to match the wordmark on the landing site + DMG. The on-
+        # disk bundle path stays /Applications/KLO.app (driven by
+        # PRODUCT_NAME above) so existing TCC grants + Sparkle update
+        # paths don't break — Finder reads CFBundleDisplayName and shows
+        # "klo" regardless of the .app filename.
+        CFBundleName: klo
+        CFBundleDisplayName: klo
+        CFBundleShortVersionString: "2.1.3"
+        CFBundleVersion: "482"
+        # Permission usage descriptions. Wording matches the Privacy
+        # page at landing/src/pages/PrivacyPage.tsx so the user sees
+        # consistent language everywhere klo asks for access.
+        NSAccessibilityUsageDescription: "klo needs Accessibility to move your cursor and press keys for you. Without it, the agent can't act on your screen."
+        NSAppleEventsUsageDescription: "klo uses Apple Events to drive scriptable apps like Notes, Calendar, and Music when you ask it to."
+        NSMicrophoneUsageDescription: "klo uses the microphone only when you trigger voice mode (⌘⇧K) — never in the background."
+        NSScreenCaptureUsageDescription: "klo captures screenshots of the active app so the model can see what you see. Captures only happen during a turn you started."
+        # Calendar usage description intentionally absent. klo's calendar
+        # surface now flows through Composio Google Calendar (OAuth via
+        # klo-cloud, tokens server-side) — no local EventKit access, no
+        # TCC prompt, no `NSCalendarsFullAccessUsageDescription`. If
+        # native EventKit is ever needed again, restore this string
+        # AND re-add `import EventKit` + the EKEventStore code in
+        # ProactiveSignalsService.swift.
+        # URL schemes for auth/billing/composio deep links. The app
+        # claims BOTH `klo://` (legacy, shared with old links in the
+        # wild) and `klo-desktop://` (canonical for OAuth callbacks).
+        # The dedicated scheme exists because iOS dev builds register
+        # `klo://` with LaunchServices on Apple Silicon Macs and can
+        # steal the sign-in callback — `klo-desktop://` is claimed by
+        # this app alone, so the OAuth handoff always lands here.
+        CFBundleURLTypes:
+          - CFBundleURLName: com.klo.auth
+            CFBundleURLSchemes:
+              - klo
+              - klo-desktop
+        # Public local builds do not auto-update. Official signed KLO
+        # builds inject Sparkle feed/key values in the private release
+        # pipeline.
+        SUEnableAutomaticChecks: false
+        SUPublicEDKey: ""
+    dependencies:
+      - package: HotKey
+      - package: Sparkle
+      - package: KLORealtime
+        product: RealtimeAPI
+      - package: MarkdownUI
+        product: MarkdownUI
+      # Chunk 0 of the cua-driver swap — linked but not yet imported
+      # anywhere in klo's source. Confirms the package resolves +
+      # builds inside our Debug + Release archives without touching
+      # MacOpsExecutor's behaviour. Subsequent chunks (1-N) start
+      # replacing screenshot, click, move, drag with cua-driver
+      # primitives.
+      - package: cua
+        product: CuaDriverCore
+    settings:
+      base:
+        # Hardened runtime + entitlements for notarization later.
+        CODE_SIGN_ENTITLEMENTS: KLO/KLO.entitlements
+    # Copy the PyInstaller-bundled Python sidecar into the .app's
+    # Resources/ folder. AppDelegate's SidecarLauncher exec()s it on
+    # launch so end users don't need uv/Python installed.
+    #
+    # If the bundle hasn't been built yet (`bin/build-klo-sidecar`),
+    # this script is a no-op so dev workflow keeps working — devs run
+    # the sidecar externally via `uv run python -m agent2.desktop_api`
+    # and SidecarLauncher detects port 8787 already in use.
+    preBuildScripts:
+      - name: Copy bundled sidecar
+        script: |
+          set -e
+          BUNDLE="$SRCROOT/sidecar-build/klo-sidecar"
+          DEST="$BUILT_PRODUCTS_DIR/KLO.app/Contents/Resources/klo-sidecar"
+          if [ -d "$BUNDLE" ]; then
+            # Fail loudly if any agent2 source is newer than the bundled
+            # binary. This is the only check that catches the
+            # "I forgot to run bin/build-klo-sidecar" trap that's
+            # bitten us repeatedly — the .app would otherwise ship
+            # the OLD bytecode while the source tree shows new code.
+            STALE=$(find "$SRCROOT/../agent2" -name "*.py" -newer "$BUNDLE/klo-sidecar" -print -quit 2>/dev/null || true)
+            if [ -n "$STALE" ]; then
+              echo "error: agent2 sources newer than sidecar bundle." >&2
+              echo "       newest unbuilt source: $STALE" >&2
+              echo "       run: bin/build-klo-sidecar" >&2
+              exit 1
+            fi
+            mkdir -p "$BUILT_PRODUCTS_DIR/KLO.app/Contents/Resources"
+            rsync -a --delete "$BUNDLE/" "$DEST/"
+            echo "  copied klo-sidecar bundle → $DEST (verified fresh)"
+          else
+            echo "  no klo-sidecar bundle at $BUNDLE — dev workflow assumes external sidecar"
+          fi
+        basedOnDependencyAnalysis: false

@@ -1,0 +1,45 @@
+.env
+.venv/
+.klo/
+klo.sqlite3
+__pycache__/
+.pytest_cache/
+*.egg-info/
+
+# Local dry-run artifacts: full-screen screenshots, traces, sessions.
+# Contain captures of the user's actual desktop — never push.
+dryrun/artifacts/
+agent2/eval_artifacts/
+
+.DS_Store
+*.log
+
+# Per-machine Claude Code state — settings, schedule locks, etc. Not project source.
+.claude/
+
+# desktop-mac (Swift): xcodeproj is regenerated from project.yml; build dirs
+# and signing/update key artifacts must never ship.
+desktop-mac/KLO.xcodeproj/
+desktop-mac/build/
+desktop-mac/dist/
+desktop-mac/DerivedData/
+desktop-mac/*.xcworkspace
+desktop-mac/Pods/
+desktop-mac/.swiftpm/
+desktop-mac/sparkle_*.key
+desktop-mac/sidecar-build/
+desktop-mac/Distribution/keys/
+.vercel
+
+# Extension private key and local build output.
+extension/.key.pem
+dist/
+
+# Swift Package build artifacts inside vendored local packages.
+# Never commit these — they're machine-specific + huge.
+desktop-mac/Packages/*/.build/
+desktop-mac/Packages/*/.swiftpm/
+
+# Chrome Web Store upload bundles + marketing PNGs — regenerate per release.
+klo-extension-*.zip
+klo-extension-screen-*.png

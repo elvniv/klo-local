@@ -1,0 +1,105 @@
+#!/bin/bash
+# bin/klo-doctor — checks the LEGACY agent2 desktop stack ONLY:
+#   desktop_api sidecar on :8787, bridge_server on :8767, chrome extension.
+# It does NOT check the python klo api (:8765). For that, run `klo doctor`
+# (or the `klo-doctor` console script installed from pyproject.toml).
+
+set -u
+
+red()    { printf "\x1b[31m%s\x1b[0m" "$1"; }
+green()  { printf "\x1b[32m%s\x1b[0m" "$1"; }
+yellow() { printf "\x1b[33m%s\x1b[0m" "$1"; }
+dim()    { printf "\x1b[2m%s\x1b[0m" "$1"; }
+
+ok=0
+warn=0
+fail=0
+
+check() {
+  local label="$1" status="$2" hint="${3:-}"
+  case "$status" in
+    ok)
+      printf "  $(green '✓') %s\n" "$label"
+      ok=$((ok+1)) ;;
+    warn)
+      printf "  $(yellow '!') %s\n" "$label"
+      [ -n "$hint" ] && printf "    $(dim "$hint")\n"
+      warn=$((warn+1)) ;;
+    fail)
+      printf "  $(red '✗') %s\n" "$label"
+      [ -n "$hint" ] && printf "    $(dim "$hint")\n"
+      fail=$((fail+1)) ;;
+  esac
+}
+
+printf "$(dim '# klo-doctor (agent2) — diagnosing the agent2 desktop_api sidecar on :8787')\n"
+printf "$(dim '# (for the python klo api on :8765, run `klo doctor` instead)')\n\n"
+
+# 1. desktop_api on :8787
+if curl -s -m 1 http://127.0.0.1:8787/health >/dev/null 2>&1; then
+  HEALTH=$(curl -s -m 1 http://127.0.0.1:8787/health)
+  check "desktop_api listening on :8787" ok
+else
+  check "desktop_api on :8787" fail "start it: bin/klo-up"
+  HEALTH=""
+fi
+
+# 2. bridge_server on :8767 (in-process inside desktop_api now, but check the port)
+if [ -n "$HEALTH" ]; then
+  bridge_status=$(printf '%s' "$HEALTH" | python3 -c "import json,sys; print(json.load(sys.stdin).get('subsystems',{}).get('bridge_server','unknown'))" 2>/dev/null || echo unknown)
+  if [ "$bridge_status" = "ok" ]; then
+    check "bridge_server (chrome extension WS) on :8767" ok
+  else
+    check "bridge_server on :8767" fail "desktop_api should host this in-process; restart: bin/klo-down && bin/klo-up"
+  fi
+
+  # 3. chrome extension actually connected
+  ext_status=$(printf '%s' "$HEALTH" | python3 -c "import json,sys; print(json.load(sys.stdin).get('subsystems',{}).get('chrome_extension','unknown'))" 2>/dev/null || echo unknown)
+  if [ "$ext_status" = "connected" ]; then
+    check "chrome extension connected" ok
+  else
+    check "chrome extension NOT connected" warn "open your browser, ensure the agent2 extension is enabled at chrome://extensions, click reload. browser_extension tool will be unavailable until then."
+  fi
+
+  # 4. OPENAI_API_KEY
+  oai_status=$(printf '%s' "$HEALTH" | python3 -c "import json,sys; print(json.load(sys.stdin).get('subsystems',{}).get('openai_key','unknown'))" 2>/dev/null || echo unknown)
+  if [ "$oai_status" = "set" ]; then
+    check "OPENAI_API_KEY set" ok
+  else
+    check "OPENAI_API_KEY missing" fail "add it to /Users/elvin/klo/.env"
+  fi
+
+  # 5. Accessibility
+  ax_status=$(printf '%s' "$HEALTH" | python3 -c "import json,sys; print(json.load(sys.stdin).get('subsystems',{}).get('accessibility_api','unknown'))" 2>/dev/null || echo unknown)
+  case "$ax_status" in
+    trusted) check "Accessibility API trusted" ok ;;
+    untrusted) check "Accessibility API not trusted" warn "computer/native_ui input may be dropped. grant Accessibility to the launching app in System Settings." ;;
+    *) check "Accessibility API status" warn "unknown — synthetic input untested" ;;
+  esac
+fi
+
+# 6. Electron desktop process running (optional)
+if pgrep -f "klo-agent-ui.*Electron" >/dev/null 2>&1; then
+  check "klo-agent-ui Electron process running" ok
+else
+  check "klo-agent-ui Electron not running" warn "(optional) start it via bin/klo-up — without it ⌘K won't work"
+fi
+
+# 7. .env file
+if [ -f /Users/elvin/klo/.env ]; then
+  check ".env file present at /Users/elvin/klo/.env" ok
+else
+  check ".env file missing" fail "cp /Users/elvin/klo/.env.example /Users/elvin/klo/.env  &&  add your OPENAI_API_KEY"
+fi
+
+printf "\n"
+if [ "$fail" = "0" ] && [ "$warn" = "0" ]; then
+  printf "$(green 'all green — everything ready')\n"
+  exit 0
+elif [ "$fail" = "0" ]; then
+  printf "$(yellow "$warn warning(s)") — agent will run but with degraded capabilities\n"
+  exit 0
+else
+  printf "$(red "$fail failure(s), $warn warning(s)") — fix the ✗ items first\n"
+  exit 1
+fi

@@ -1,0 +1,1495 @@
+/* klo in-page side panel.
+ * Mounted in a Shadow DOM by overlay.js. Pushes the host page over,
+ * resizable via a left-edge handle. Brand language: klo-black surface,
+ * cream foreground, olive accent. Mirrors KloColors (iOS/Mac) and the
+ * SignInScreen vocabulary — no orange anywhere, even for warnings.
+ */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+/* Box-sizing reset — Shadow DOM doesn't inherit from the host page so we
+ * have to set this ourselves. Without it padding + borders blow widths
+ * past the panel and content gets clipped on the right. */
+*, *::before, *::after { box-sizing: border-box; }
+
+:host {
+  --klo-black:    #0A0A0A;
+  --klo-cream:    #F1ECE5;
+  --klo-paper:    #FBF8F2;
+  --klo-olive:    #A8C152;
+  --klo-oliveHi:  #BED56F;
+  --klo-oliveLo:  #8FA847;
+
+  --klo-bg:        var(--klo-black);
+  --klo-bg-soft:   #161616;
+  --klo-bg-input:  #161616;
+  --klo-fg:        var(--klo-cream);
+  /* Opacity ramp mirrors KloColors.fg / .fg60 / .fg45 — bumped to
+     70/55 so eyebrow + caption text clears WCAG AA on near-black. */
+  --klo-fg-80:     rgba(241,236,229,0.85);
+  --klo-fg-60:     rgba(241,236,229,0.70);
+  --klo-fg-45:     rgba(241,236,229,0.55);
+  --klo-border:        rgba(241,236,229,0.14);
+  --klo-border-strong: rgba(241,236,229,0.22);
+  --klo-border-faint:  rgba(241,236,229,0.08);
+
+  /* Heavier than the landing's defaults so the panel reads on any
+   * host page. The panel surface is near-black against a likely-
+   * white site bg; the deep shadow gives the panel definition. */
+  --klo-shadow: -12px 0 48px rgba(0, 0, 0, 0.55);
+  --klo-radius:    16px;   /* matches landing rounded-2xl */
+  --klo-radius-sm: 10px;
+
+  --klo-font: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  --klo-mono: "JetBrains Mono", ui-monospace, SF Mono, Menlo, monospace;
+
+  --klo-error:   #DC2626;
+  --klo-success: #16A34A;
+  /* Soft-warning tint for things that didn't work but are routine in
+     an agent loop (a click that missed, a search with no results, a
+     tool error the model handled on the next round). NOT red — red is
+     reserved for "you must act on this" hard errors. */
+  --klo-warn:    #B45309;
+  /* Quiet inline notices — system mutterings the user should glance
+     at but not be startled by (timeouts, transient hiccups). */
+  --klo-notice:  #6B7280;
+
+  all: initial;
+  font-family: var(--klo-font);
+  color: var(--klo-fg);
+}
+
+/* Dark mode — flips the semantic surface tokens. Orange accent and
+ * raw brand swatches (--klo-black, --klo-paper) stay unchanged.
+ * Triggers on the user's OS preference, not the host page's theme,
+ * so the overlay reads consistently regardless of the site it's on. */
+@media (prefers-color-scheme: dark) {
+  :host {
+    --klo-bg:        var(--klo-black);
+    --klo-bg-soft:   #161616;
+    --klo-bg-input:  #161616;
+    --klo-fg:        var(--klo-paper);
+    --klo-fg-80:     rgba(255,255,255,0.85);
+    --klo-fg-60:     rgba(255,255,255,0.60);
+    --klo-fg-45:     rgba(255,255,255,0.45);
+    --klo-border:        rgba(255,255,255,0.12);
+    --klo-border-strong: rgba(255,255,255,0.20);
+    --klo-border-faint:  rgba(255,255,255,0.06);
+    /* Heavier panel shadow on dark host pages too. */
+    --klo-shadow: -12px 0 48px rgba(0, 0, 0, 0.45);
+  }
+}
+
+::selection {
+  background-color: var(--klo-olive);
+  color: var(--klo-black);
+}
+
+/* ─── Panel root ───────────────────────────────────────────────────── */
+/* Wrapper is a transparent positioning shell. The visible card is
+ * .klo-panel-inner — that's what gets the rounded corners, orange ring,
+ * and glow shadow. The wrapper still claims the full 380px right strip
+ * so the host-page shrink calc stays correct; the 12px gap on
+ * top/right/bottom is just empty space the card lifts inside of. */
+.klo-panel {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 380px;             /* overridden inline by JS */
+  background: transparent;
+  z-index: 2147483647;
+  display: flex;
+  flex-direction: row;
+  font-family: var(--klo-font);
+  -webkit-font-smoothing: antialiased;
+  color: var(--klo-fg);
+  transform: translateX(100%);
+  transition: transform 220ms cubic-bezier(0.2, 0.9, 0.3, 1);
+  will-change: transform;
+  pointer-events: none;     /* wrapper itself doesn't intercept clicks; only the card does */
+}
+.klo-panel.is-open    { transform: translateX(0); }
+.klo-panel.is-dragging { transition: none !important; }
+.klo-panel[hidden]    { display: none; }
+
+/* ─── Resize handle (left edge of panel) ──────────────────────────── */
+.klo-resize-handle {
+  flex: 0 0 6px;
+  width: 6px;
+  background: transparent;
+  cursor: ew-resize;
+  position: relative;
+  user-select: none;
+  touch-action: none;
+  pointer-events: auto;
+}
+.klo-resize-handle::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 1px;
+  background: transparent;
+  transition: background 120ms;
+}
+.klo-resize-handle:hover::before,
+.klo-panel.is-dragging .klo-resize-handle::before {
+  background: var(--klo-olive);
+  width: 2px;
+}
+
+/* ─── Inner column — the visible card ─────────────────────────────── */
+/* Lifted 12px from top/right/bottom. Orange ring + soft orange bloom
+ * mirror the landing's KeycapDemo glow vocabulary
+ * (landing/src/pages/MinimalLandingPage.tsx:746-762) but static, not
+ * pulsing — pulsing on a chat surface reads as nagging. */
+.klo-panel-inner {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  margin: 12px 12px 12px 0;
+  background: var(--klo-bg);
+  border: 1.5px solid rgba(168, 193, 82, 0.45);
+  border-radius: 18px;
+  overflow: hidden;
+  box-shadow:
+    0 8px 24px rgba(0, 0, 0, 0.55),
+    0 0 0 1px rgba(168, 193, 82, 0.22),
+    0 0 28px rgba(168, 193, 82, 0.24);
+  pointer-events: auto;
+}
+
+/* ─── Header ──────────────────────────────────────────────────────── */
+.klo-header {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 14px 12px;
+  border-bottom: 1px solid var(--klo-border);
+  position: relative;
+}
+.klo-wordmark {
+  height: 18px;
+  width: auto;
+  user-select: none;
+  -webkit-user-drag: none;
+  flex-shrink: 0;
+}
+.klo-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px 3px;
+  border: 1px solid var(--klo-border);
+  background: var(--klo-bg-soft);
+  border-radius: 999px;
+  font-family: var(--klo-mono);
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--klo-fg-60);
+  line-height: 1;
+  flex-shrink: 0;
+}
+.klo-tag-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--klo-olive);
+  box-shadow: 0 0 6px rgba(168, 193, 82, 0.55);
+  flex: 0 0 auto;
+}
+/* The chat-title pill is the same .klo-tag pattern as the existing
+   ⌘K hint, but it's a button (clicking opens History) and its label
+   truncates to the active conversation's title. */
+.klo-title-pill {
+  cursor: pointer;
+  max-width: 60%;
+  transition: border-color 120ms, color 120ms;
+}
+.klo-title-pill:hover { border-color: var(--klo-border-strong); color: var(--klo-fg); }
+/* Connected-apps stack in the header. Same vocabulary as the sidepanel:
+   up to 3 overlapping brand glyphs + "+N" overflow, doubles as the
+   apps-picker entry point. Hidden when no toolkits are connected. */
+.klo-header-apps {
+  display: none;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px 3px 5px;
+  border: 0.75px solid var(--klo-border);
+  background: transparent;
+  border-radius: 999px;
+  cursor: pointer;
+  flex: 0 0 auto;
+  transition: border-color 160ms, background 160ms;
+}
+.klo-header-apps.is-visible { display: inline-flex; }
+.klo-header-apps:hover {
+  border-color: rgba(168, 193, 82, 0.55);
+  background: rgba(168, 193, 82, 0.06);
+}
+.klo-header-apps-stack { display: inline-flex; align-items: center; }
+.klo-header-apps-stack > * {
+  width: 16px;
+  height: 16px;
+  border-radius: 5px;
+  border: 1px solid var(--klo-bg);
+  margin-left: -5px;
+  background: rgba(241, 236, 229, 0.06);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+.klo-header-apps-stack > *:first-child { margin-left: 0; }
+.klo-header-apps-stack img { width: 14px; height: 14px; object-fit: contain; }
+.klo-header-apps-stack .monogram {
+  font-family: var(--klo-mono);
+  font-size: 8px;
+  font-weight: 600;
+  color: var(--brand-color, var(--klo-olive));
+  background: var(--brand-tint, rgba(168, 193, 82, 0.18));
+}
+.klo-header-apps-label {
+  font-family: var(--klo-mono);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  color: var(--klo-fg-60);
+  line-height: 1;
+}
+.klo-title-pill-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 22ch;
+}
+.klo-header-spacer { flex: 1; }
+
+.klo-icon-btn {
+  background: transparent;
+  border: none;
+  color: var(--klo-fg-60);
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 16px;
+  line-height: 1;
+  letter-spacing: 0.2em;
+  font-family: var(--klo-font);
+}
+.klo-icon-btn:hover { color: var(--klo-fg); background: var(--klo-border-faint); }
+
+/* ─── Menu dropdown ──────────────────────────────────────────────── */
+.klo-menu {
+  position: absolute;
+  top: 44px;
+  right: 12px;
+  background: var(--klo-bg-soft);
+  border: 1px solid var(--klo-border);
+  border-radius: 14px;
+  padding: 6px;
+  z-index: 100;
+  box-shadow:
+    0 14px 32px rgba(0, 0, 0, 0.45),
+    0 0 0 1px rgba(168, 193, 82, 0.06);
+  display: none;
+  min-width: 170px;
+}
+.klo-menu.is-visible { display: block; }
+.klo-menu button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: none;
+  padding: 7px 11px;
+  font: inherit;
+  font-family: var(--klo-font);
+  font-size: 13px;
+  color: var(--klo-fg-80);
+  border-radius: 7px;
+  cursor: pointer;
+}
+.klo-menu button:hover { background: rgba(168, 193, 82, 0.08); color: var(--klo-fg); }
+.klo-menu .klo-menu-section {
+  font-family: var(--klo-mono);
+  font-size: 9px;
+  color: var(--klo-fg-45);
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  padding: 6px 11px 3px;
+}
+.klo-menu-divider {
+  height: 1px;
+  background: var(--klo-border-faint);
+  margin: 5px 4px;
+}
+
+/* ─── History dropdown (overlay) ─────────────────────────────────────
+   Anchored under the title pill in the header — the side-panel pattern
+   ported into the shadow DOM. Wider and scrollable so 100 conversations
+   fit without overwhelming the small overlay. */
+.klo-history-menu {
+  position: absolute;
+  top: 44px;
+  left: 56px;
+  right: 12px;
+  max-height: min(60vh, 420px);
+  overflow-y: auto;
+  background: var(--klo-bg-soft);
+  border: 1px solid var(--klo-border);
+  border-radius: 14px;
+  padding: 6px;
+  z-index: 100;
+  box-shadow:
+    0 14px 32px rgba(0, 0, 0, 0.45),
+    0 0 0 1px rgba(168, 193, 82, 0.06);
+  display: none;
+}
+.klo-history-menu.is-visible { display: block; }
+.klo-history-menu::-webkit-scrollbar { width: 5px; }
+.klo-history-menu::-webkit-scrollbar-track { background: transparent; }
+.klo-history-menu::-webkit-scrollbar-thumb { background: var(--klo-border); border-radius: 3px; }
+.klo-history-empty {
+  padding: 18px 12px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--klo-fg-45);
+}
+.klo-history-empty.is-hidden { display: none; }
+.klo-history-group-heading {
+  font-family: var(--klo-mono);
+  font-size: 9px;
+  color: var(--klo-fg-45);
+  letter-spacing: 0.20em;
+  text-transform: uppercase;
+  padding: 6px 10px 2px;
+}
+/* Single-line rows. Title carries the load; the date stays as a quiet
+   trailing suffix; the preview is dropped (display:none — JS still
+   writes to it so we don't have to touch overlay.js). */
+.klo-history-row {
+  position: relative;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: none;
+  padding: 5px 26px 5px 10px;
+  font-family: var(--klo-font);
+  color: var(--klo-fg-80);
+  border-radius: 6px;
+  cursor: pointer;
+}
+.klo-history-row:hover { background: rgba(168, 193, 82, 0.06); }
+.klo-history-row.is-active { background: rgba(168, 193, 82, 0.12); box-shadow: inset 2px 0 0 var(--klo-olive); }
+.klo-history-row.is-active .klo-history-row-title { color: var(--klo-fg); }
+.klo-history-row-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--klo-fg);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.4;
+}
+.klo-history-row-meta { display: contents; }
+.klo-history-row-preview { display: none; }
+.klo-history-row-time {
+  font-family: var(--klo-mono);
+  font-size: 9px;
+  color: var(--klo-fg-45);
+  letter-spacing: 0.05em;
+  flex: 0 0 auto;
+}
+.klo-history-row-delete {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  transform: translateY(-50%);
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  background: transparent;
+  border: none;
+  color: var(--klo-fg-45);
+  cursor: pointer;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  line-height: 1;
+  padding: 0;
+  font-family: var(--klo-font);
+}
+.klo-history-row:hover .klo-history-row-delete { display: flex; }
+.klo-history-row:hover .klo-history-row-time { display: none; }
+.klo-history-row-delete:hover { background: var(--klo-border-faint); color: var(--klo-error); }
+
+/* ─── Sign-in pane ─────────────────────────────────────────────────
+   Mirrors iOS SignInScreen pixel-for-pixel: cream wordmark, metadata
+   tagline flanked by olive rules, outline-only capsule with a cream
+   Google-G disc, monospace legal. The breathing olive glow under the
+   button is the CSS echo of SignInScreen.kloFireGlow. */
+.klo-signin {
+  flex: 1;
+  display: none;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  padding: 28px 24px 24px;
+  width: 100%;
+  margin: 0 auto;
+  overflow: hidden;
+  position: relative;
+  text-align: center;
+}
+.klo-signin.is-visible { display: flex; }
+.klo-signin-bg {
+  position: absolute;
+  left: 50%;
+  bottom: -90px;
+  transform: translateX(-50%);
+  width: 380px;
+  height: 220px;
+  pointer-events: none;
+  background: radial-gradient(ellipse at center,
+                rgba(168,193,82,0.18) 0%,
+                rgba(168,193,82,0.08) 38%,
+                transparent 70%);
+  filter: blur(14px);
+}
+.klo-signin-view {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+  width: 100%;
+}
+.klo-signin-view[hidden] { display: none; }
+.klo-signin-glyph {
+  width: auto;
+  height: 32px;
+  opacity: 0.92;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+.klo-signin-tagline {
+  display: inline-flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: 2px;
+}
+.klo-signin-tagline-rule {
+  width: 28px;
+  height: 0.5px;
+  background: rgba(168, 193, 82, 0.55);
+}
+.klo-signin-tagline-text {
+  font-family: var(--klo-mono);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: rgba(241, 236, 229, 0.55);
+  line-height: 1;
+  transition: opacity 0.4s ease, transform 0.4s ease;
+}
+.klo-signin-tagline-text.is-fading { opacity: 0; transform: translateY(-3px); }
+
+.klo-signin-cta-wrap {
+  position: relative;
+  margin-top: 6px;
+  width: auto;
+  display: inline-flex;
+  justify-content: center;
+}
+.klo-signin-cta-glow {
+  position: absolute;
+  inset: -4px;
+  border-radius: 999px;
+  pointer-events: none;
+  animation: klo-signin-cta-breathe 2.4s ease-in-out infinite;
+}
+@keyframes klo-signin-cta-breathe {
+  0%, 100% { box-shadow: 0 0 12px rgba(168,193,82,0.18), 0 0 24px rgba(168,193,82,0.08); }
+  50%      { box-shadow: 0 0 22px rgba(168,193,82,0.40), 0 0 44px rgba(168,193,82,0.18); }
+}
+.klo-signin-cta-wrap.is-loading .klo-signin-cta-glow {
+  animation: none;
+  box-shadow: none;
+}
+.klo-btn-primary {
+  position: relative;
+  z-index: 1;
+  min-width: 240px;
+  padding: 12px 22px;
+  background: transparent;
+  color: rgba(241, 236, 229, 0.92);
+  border: 0.75px solid rgba(168, 193, 82, 0.55);
+  border-radius: 999px;
+  font-family: var(--klo-font);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  transition: border-color 160ms, transform 120ms, background 160ms;
+  box-sizing: border-box;
+}
+.klo-btn-primary:hover:not(:disabled) {
+  border-color: rgba(168, 193, 82, 0.85);
+  background: rgba(168, 193, 82, 0.06);
+  transform: scale(1.01);
+}
+.klo-btn-primary:disabled { opacity: 0.55; cursor: default; }
+.klo-g-disc {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--klo-cream);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 22px;
+}
+.klo-g-disc svg { width: 13px; height: 13px; display: block; }
+.klo-g-label {
+  font-family: var(--klo-mono);
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: lowercase;
+  line-height: 1;
+}
+
+.klo-signin-feedback {
+  margin-top: 12px;
+  padding: 10px 14px;
+  font-family: var(--klo-mono);
+  font-size: 11px;
+  border-radius: 10px;
+  display: none;
+  line-height: 1.5;
+  letter-spacing: 0.02em;
+  max-width: 280px;
+}
+.klo-signin-feedback.is-visible { display: block; }
+.klo-signin-feedback.ok  { border: 1px solid rgba(168, 193, 82, 0.35); color: var(--klo-olive);   background: rgba(168, 193, 82, 0.06); }
+.klo-signin-feedback.err { border: 1px solid rgba(220, 38, 38, 0.30); color: var(--klo-error);    background: rgba(220, 38, 38, 0.06); }
+.klo-signin-feedback.info { border: 1px solid var(--klo-border); color: var(--klo-fg-80); background: var(--klo-bg-soft); }
+
+/* ─── Upsell pane (signed-in, no active subscription) ────────────
+   Same iOS SignInScreen vocabulary as the sign-in pane. Cream
+   wordmark + olive-ruled tagline + font-light display headline +
+   outline-only Stripe CTA with breathing olive glow. */
+.klo-upsell {
+  flex: 1;
+  display: none;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  padding: 28px 24px 24px;
+  width: 100%;
+  margin: 0 auto;
+  text-align: center;
+  overflow-y: auto;
+  position: relative;
+  gap: 18px;
+}
+.klo-upsell.is-visible { display: flex; }
+.klo-upsell:before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: -90px;
+  transform: translateX(-50%);
+  width: 380px;
+  height: 220px;
+  pointer-events: none;
+  background: radial-gradient(ellipse at center,
+                rgba(168,193,82,0.18) 0%,
+                rgba(168,193,82,0.08) 38%,
+                transparent 70%);
+  filter: blur(14px);
+  z-index: 0;
+}
+.klo-upsell > * { position: relative; z-index: 1; }
+.klo-upsell-glyph {
+  height: 32px;
+  width: auto;
+  opacity: 0.92;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+.klo-upsell-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: 2px;
+}
+.klo-upsell-tag-rule {
+  width: 28px;
+  height: 0.5px;
+  background: rgba(168, 193, 82, 0.55);
+}
+.klo-upsell-tag-text {
+  font-family: var(--klo-mono);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: rgba(241, 236, 229, 0.55);
+  line-height: 1;
+}
+.klo-upsell h2 {
+  font-size: 32px;
+  font-weight: 300;
+  letter-spacing: -0.025em;
+  line-height: 1.02;
+  margin: 6px 0 0;
+  color: var(--klo-fg);
+}
+.klo-upsell-lede {
+  font-family: var(--klo-mono);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  color: rgba(241, 236, 229, 0.70);
+  line-height: 1.55;
+  margin: 0;
+}
+.klo-upsell-cta-wrap {
+  position: relative;
+  margin-top: 6px;
+  display: inline-flex;
+  justify-content: center;
+}
+.klo-upsell-cta-glow {
+  position: absolute;
+  inset: -4px;
+  border-radius: 999px;
+  pointer-events: none;
+  animation: klo-signin-cta-breathe 2.4s ease-in-out infinite;
+}
+.klo-upsell-cta-wrap.is-loading .klo-upsell-cta-glow { animation: none; box-shadow: none; }
+.klo-upsell-cta {
+  position: relative;
+  z-index: 1;
+  min-width: 240px;
+  padding: 12px 22px;
+  background: transparent;
+  color: rgba(241, 236, 229, 0.92);
+  border: 0.75px solid rgba(168, 193, 82, 0.55);
+  border-radius: 999px;
+  font-family: var(--klo-font);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  transition: border-color 160ms, background 160ms, transform 120ms;
+}
+.klo-upsell-cta:hover:not(:disabled) {
+  border-color: rgba(168, 193, 82, 0.85);
+  background: rgba(168, 193, 82, 0.06);
+  transform: scale(1.01);
+}
+.klo-upsell-cta:disabled { opacity: 0.55; cursor: default; }
+.klo-lock-disc {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--klo-cream);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 22px;
+  color: var(--klo-black);
+}
+.klo-lock-disc svg { width: 12px; height: 12px; display: block; }
+.klo-upsell-cta-label {
+  font-family: var(--klo-mono);
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: lowercase;
+  line-height: 1;
+}
+
+.klo-upsell-already {
+  margin-top: 4px;
+  background: transparent;
+  color: rgba(241, 236, 229, 0.55);
+  border: none;
+  padding: 4px 8px;
+  font-family: var(--klo-mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-thickness: 0.5px;
+  transition: color 120ms;
+}
+.klo-upsell-already:hover { color: var(--klo-fg); }
+.klo-upsell-fineprint {
+  margin: 0;
+  font-family: var(--klo-mono);
+  font-size: 10px;
+  color: rgba(241, 236, 229, 0.40);
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  line-height: 1.5;
+}
+
+/* ─── Sign-in sub-views (form / pending) ──────────────────────── */
+.klo-signin-view {
+  display: flex;
+  flex-direction: column;
+}
+.klo-signin-view[hidden] { display: none; }
+
+/* Pending sub-view ("click the email") gets its own tag styling for
+ * visual continuity with the olive accent system. */
+.klo-signin-tag-pending {
+  border-color: rgba(168, 193, 82, 0.42);
+  color: var(--klo-olive);
+}
+.klo-signin-tag-pending .klo-signin-tag-dot {
+  box-shadow: 0 0 8px rgba(168, 193, 82, 0.7);
+  animation: klo-signin-tag-pulse 1.4s ease-in-out infinite;
+}
+@keyframes klo-signin-tag-pulse {
+  0%, 100% { opacity: 0.6; transform: scale(1); }
+  50%      { opacity: 1;   transform: scale(1.25); }
+}
+
+/* The three-dot pending pulse, sits below the lede where the form's
+ * Send-magic-link button would be. Animated to suggest "we're waiting
+ * on you." */
+.klo-pending-pulse {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  margin: 22px 0 14px;
+}
+.klo-pending-pulse span {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--klo-olive);
+  opacity: 0.4;
+  animation: klo-pending-bounce 1.4s ease-in-out infinite;
+}
+.klo-pending-pulse span:nth-child(2) { animation-delay: 0.18s; }
+.klo-pending-pulse span:nth-child(3) { animation-delay: 0.36s; }
+@keyframes klo-pending-bounce {
+  0%, 100% { transform: translateY(0);   opacity: 0.35; }
+  50%      { transform: translateY(-4px); opacity: 1; }
+}
+
+#pending-email {
+  color: var(--klo-fg);
+  font-weight: 500;
+}
+
+.klo-pending-line {
+  font-size: 13px;
+  color: var(--klo-fg-60);
+  line-height: 1.5;
+  text-align: center;
+  margin: 0 0 16px;
+}
+
+#pending-resend-btn {
+  margin-top: 6px;
+  background: transparent;
+  border: 1px solid var(--klo-border);
+  color: var(--klo-fg-80);
+  padding: 9px 18px;
+  border-radius: 999px;
+  font-family: var(--klo-font);
+  font-size: 13px;
+  cursor: pointer;
+  transition: border-color 120ms, color 120ms;
+  align-self: stretch;
+  width: 100%;
+}
+#pending-resend-btn:hover {
+  border-color: var(--klo-border-strong);
+  color: var(--klo-fg);
+}
+
+.klo-terms {
+  margin-top: 14px;
+  font-family: var(--klo-mono);
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: 0.03em;
+  color: rgba(241, 236, 229, 0.40);
+  text-align: center;
+  line-height: 1.5;
+  max-width: 280px;
+}
+.klo-terms a {
+  color: rgba(241, 236, 229, 0.75);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-thickness: 0.5px;
+}
+.klo-terms a:hover { color: var(--klo-fg); }
+
+/* ─── Chat pane ──────────────────────────────────────────────── */
+.klo-chat {
+  flex: 1;
+  display: none;
+  flex-direction: column;
+  min-height: 0;
+}
+.klo-chat.is-visible { display: flex; }
+
+.klo-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 16px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  scroll-behavior: smooth;
+}
+.klo-empty-hint {
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  margin: auto;
+  padding: 24px 20px;
+  text-align: center;
+}
+.klo-body.is-empty .klo-empty-hint { display: flex; }
+.klo-empty-hint-eyebrow {
+  font-family: var(--klo-mono);
+  font-size: 10px;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--klo-fg-45);
+}
+.klo-empty-hint-chips {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+}
+.klo-empty-hint-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 12px 6px 8px;
+  border: 0.75px solid var(--brand-edge, rgba(241, 236, 229, 0.18));
+  border-radius: 999px;
+  background: var(--brand-tint, transparent);
+  font-family: var(--klo-mono);
+  font-size: 11.5px;
+  letter-spacing: 0.02em;
+  color: var(--klo-fg);
+  cursor: pointer;
+  transition: border-color 160ms, background 160ms, transform 120ms;
+}
+.klo-empty-hint-chip:hover {
+  border-color: var(--brand-color, rgba(168, 193, 82, 0.55));
+  transform: scale(1.02);
+}
+.klo-empty-hint-chip img { width: 14px; height: 14px; object-fit: contain; flex: 0 0 14px; }
+.klo-empty-hint-trailer {
+  font-family: var(--klo-mono);
+  font-size: 11px;
+  color: var(--klo-fg-45);
+  line-height: 1.6;
+  max-width: 220px;
+  letter-spacing: 0.04em;
+}
+.klo-body::-webkit-scrollbar { width: 5px; }
+.klo-body::-webkit-scrollbar-track { background: transparent; }
+.klo-body::-webkit-scrollbar-thumb {
+  background: var(--klo-border);
+  border-radius: 3px;
+}
+
+.klo-msg { display: flex; flex-direction: column; gap: 6px; }
+.klo-msg-role {
+  font-family: var(--klo-mono);
+  font-size: 9px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--klo-fg-45);
+}
+.klo-msg-text {
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--klo-fg-80);
+}
+.klo-msg.is-user .klo-msg-role { color: var(--klo-olive); }
+.klo-msg.is-user .klo-msg-text { color: var(--klo-fg); }
+.klo-msg-text a {
+  color: var(--klo-olive);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.klo-msg-text a:hover { color: var(--klo-oliveHi); }
+.klo-msg-text strong { color: var(--klo-fg); font-weight: 600; }
+.klo-msg-text code {
+  font-family: var(--klo-mono);
+  font-size: 12px;
+  padding: 1px 5px;
+  background: var(--klo-bg-input);
+  border: 1px solid var(--klo-border);
+  border-radius: 4px;
+  color: var(--klo-fg);
+}
+.klo-msg-text pre {
+  font-family: var(--klo-mono);
+  font-size: 11.5px;
+  background: var(--klo-bg-input);
+  border: 1px solid var(--klo-border);
+  border-radius: var(--klo-radius-sm);
+  padding: 10px 12px;
+  overflow-x: auto;
+  margin: 8px 0 0;
+  color: var(--klo-fg);
+  line-height: 1.55;
+}
+.klo-msg-text pre code { background: transparent; border: none; padding: 0; }
+.klo-msg.is-error .klo-msg-role { color: var(--klo-error); }
+.klo-msg.is-error .klo-msg-text { color: var(--klo-error); }
+
+/* Inline calm notice — no role label, italic, indented, soft grey.
+   Sits in the log like a system aside rather than a chat message. */
+.klo-msg.is-notice {
+  padding-left: 18px;
+  margin: 4px 0 2px;
+}
+.klo-msg.is-notice .klo-msg-text {
+  color: var(--klo-notice);
+  font-size: 12px;
+  font-style: italic;
+  line-height: 1.45;
+}
+
+/* Tool activity entries — one line per tool the agent fires. Compact,
+   monospace, → prefix so they read as actions, not chat. Pending →
+   done/failed state shifts color of the arrow. Lets the user watch
+   klo work step by step instead of guessing behind a status pill. */
+.klo-msg-tool {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-family: var(--klo-mono);
+  font-size: 11.5px;
+  color: var(--klo-fg-60);
+  line-height: 1.4;
+  padding: 0 2px;
+}
+.klo-msg-tool-arrow {
+  color: var(--klo-fg-45);
+  flex: 0 0 auto;
+}
+.klo-msg-tool.is-pending .klo-msg-tool-text  { color: var(--klo-fg-60); opacity: 0.85; }
+.klo-msg-tool.is-pending .klo-msg-tool-arrow { color: var(--klo-olive); }
+.klo-msg-tool.is-done    .klo-msg-tool-text  { color: var(--klo-fg-60); }
+.klo-msg-tool.is-done    .klo-msg-tool-arrow { color: var(--klo-success); }
+/* Failed tool calls are routine in agent loops — the model usually
+   recovers on the next round. Use a soft warn (amber) instead of
+   alarm-red so the activity log doesn't look like the agent is on
+   fire when one click misses. */
+.klo-msg-tool.is-error   .klo-msg-tool-text  { color: var(--klo-warn); }
+.klo-msg-tool.is-error   .klo-msg-tool-arrow { color: var(--klo-warn); }
+
+/* Stuck banner — heartbeat watchdog fired or elapsed >60s. System-
+   level alert with inline retry button that re-issues the last prompt. */
+.klo-msg-stuck {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid rgba(168, 193, 82, 0.40);
+  background: rgba(168, 193, 82, 0.07);
+  border-radius: 12px;
+  font-size: 13px;
+  color: var(--klo-fg-80);
+  line-height: 1.4;
+}
+.klo-msg-stuck-text { flex: 1; }
+.klo-msg-stuck-retry {
+  flex: 0 0 auto;
+  padding: 7px 14px;
+  background: var(--klo-olive);
+  color: var(--klo-black);
+  border: none;
+  border-radius: 999px;
+  font-family: var(--klo-font);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 120ms;
+}
+.klo-msg-stuck-retry:hover { background: var(--klo-oliveHi); }
+
+/* Inline connection banner — bridge (Mac app) health. Calm amber
+   strip above the input, not an error bubble: chat still works
+   without the Mac app. */
+.klo-conn-banner {
+  display: none;
+  flex: 0 0 auto;
+  margin: 0 12px 6px;
+  padding: 7px 12px;
+  border: 1px solid rgba(180, 83, 9, 0.35);
+  background: rgba(180, 83, 9, 0.08);
+  border-radius: 10px;
+  font-family: var(--klo-mono);
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  color: var(--klo-fg-80);
+  line-height: 1.4;
+}
+.klo-conn-banner.is-visible { display: block; }
+
+/* Paywall variant — used when /chat/llm-turn returns 402. Renders
+   as an orange-tinted card with embedded Upgrade button. */
+.klo-msg.is-paywall {
+  padding: 14px 14px 13px;
+  border: 1px solid rgba(168, 193, 82, 0.32);
+  background: rgba(168, 193, 82, 0.07);
+  border-radius: 12px;
+}
+.klo-msg.is-paywall .klo-msg-role { color: var(--klo-olive); }
+.klo-msg.is-paywall .klo-msg-text { color: var(--klo-fg); margin-bottom: 10px; }
+.klo-msg.is-paywall .klo-msg-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 16px;
+  background: var(--klo-olive);
+  color: var(--klo-black);
+  border: none;
+  border-radius: 999px;
+  font-family: var(--klo-font);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 120ms, transform 120ms;
+}
+.klo-msg.is-paywall .klo-msg-cta:hover { background: var(--klo-oliveHi); transform: scale(1.02); }
+.klo-msg.is-paywall .klo-msg-cta:disabled { opacity: 0.5; cursor: default; }
+
+/* ─── Inline Composio auth-required card ───────────────────────── */
+.klo-msg-auth-card {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 10px 11px 10px 12px;
+  border: 0.75px solid var(--brand-edge, rgba(168, 193, 82, 0.45));
+  border-radius: 14px;
+  background:
+    linear-gradient(to right,
+      var(--brand-tint, rgba(168, 193, 82, 0.04)) 0%,
+      rgba(241, 236, 229, 0.02) 100%);
+  transition: border-color 220ms, background 220ms, opacity 280ms, transform 280ms;
+  animation: klo-msg-auth-in 280ms cubic-bezier(0.2, 0.9, 0.3, 1) both;
+}
+@keyframes klo-msg-auth-in {
+  0%   { opacity: 0; transform: translateY(6px) scale(0.985); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+.klo-msg-auth-card.is-fading {
+  opacity: 0;
+  transform: translateY(-2px) scale(0.99);
+  pointer-events: none;
+}
+.klo-msg-auth-tile {
+  width: 30px; height: 30px; border-radius: 8px;
+  display: inline-flex; align-items: center; justify-content: center;
+  overflow: hidden;
+  background: rgba(241, 236, 229, 0.06);
+  flex: 0 0 30px;
+}
+.klo-msg-auth-tile img { width: 22px; height: 22px; object-fit: contain; }
+.klo-msg-auth-tile.monogram {
+  background: var(--brand-tint, rgba(168, 193, 82, 0.18));
+  color: var(--brand-color, var(--klo-olive));
+  font-family: var(--klo-mono);
+  font-size: 11px;
+  font-weight: 600;
+}
+.klo-msg-auth-body {
+  flex: 1; min-width: 0;
+  display: flex; flex-direction: column; gap: 1px;
+}
+.klo-msg-auth-title {
+  font-size: 13px;
+  color: var(--klo-fg);
+  line-height: 1.3;
+  letter-spacing: -0.005em;
+}
+.klo-msg-auth-sub {
+  font-family: var(--klo-mono);
+  font-size: 10.5px;
+  color: var(--klo-fg-60);
+  line-height: 1.4;
+}
+.klo-msg-auth-cta {
+  flex: 0 0 auto;
+  padding: 6px 13px;
+  background: transparent;
+  color: var(--klo-fg);
+  border: 0.75px solid var(--brand-edge, rgba(168, 193, 82, 0.55));
+  border-radius: 999px;
+  font-family: var(--klo-mono);
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  text-transform: lowercase;
+  cursor: pointer;
+  transition: background 160ms, border-color 160ms, color 160ms;
+}
+.klo-msg-auth-cta:hover {
+  background: var(--brand-tint, rgba(168, 193, 82, 0.10));
+  border-color: var(--brand-color, rgba(168, 193, 82, 0.85));
+}
+.klo-msg-auth-cta:disabled { opacity: 0.55; cursor: default; }
+.klo-msg-auth-spinner {
+  width: 14px; height: 14px;
+  border: 1.5px solid transparent;
+  border-top-color: var(--brand-color, var(--klo-olive));
+  border-right-color: var(--brand-color, var(--klo-olive));
+  border-radius: 50%;
+  animation: klo-msg-auth-spin 0.7s linear infinite;
+  flex: 0 0 auto;
+  display: none;
+}
+@keyframes klo-msg-auth-spin { to { transform: rotate(360deg); } }
+.klo-msg-auth-check {
+  width: 18px; height: 18px;
+  border-radius: 50%;
+  background: var(--brand-color, var(--klo-olive));
+  flex: 0 0 auto;
+  display: none;
+  align-items: center;
+  justify-content: center;
+}
+.klo-msg-auth-check::after {
+  content: "";
+  width: 6px; height: 10px;
+  border-right: 1.6px solid var(--klo-black);
+  border-bottom: 1.6px solid var(--klo-black);
+  transform: rotate(45deg) translate(-1px, -1px);
+}
+.klo-msg-auth-card.is-connecting .klo-msg-auth-cta { display: none; }
+.klo-msg-auth-card.is-connecting .klo-msg-auth-spinner { display: inline-block; }
+.klo-msg-auth-card.is-connected .klo-msg-auth-cta,
+.klo-msg-auth-card.is-connected .klo-msg-auth-spinner { display: none; }
+.klo-msg-auth-card.is-connected .klo-msg-auth-check { display: inline-flex; }
+
+/* ─── Status pill ────────────────────────────────────────────── */
+.klo-status {
+  display: none;
+  align-items: center;
+  gap: 9px;
+  padding: 10px 18px;
+  font-size: 11px;
+  color: var(--klo-fg-60);
+  font-family: var(--klo-mono);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  border-top: 1px solid var(--klo-border-faint);
+  flex: 0 0 auto;
+}
+.klo-status.is-visible { display: flex; }
+.klo-pulse {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--klo-olive);
+  box-shadow: 0 0 8px rgba(168, 193, 82, 0.55);
+  animation: klo-pulse 1.2s ease-in-out infinite;
+}
+@keyframes klo-pulse {
+  0%, 100% { opacity: 0.45; transform: scale(1); }
+  50%      { opacity: 1;    transform: scale(1.35); }
+}
+
+/* Slash-command popover — mirrors sidepanel's .slash-popover. Anchored
+   above the input row so it doesn't push chat content. */
+.klo-slash-popover {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: calc(100% + 4px);
+  background: var(--klo-bg-soft);
+  border: 1px solid var(--klo-border);
+  border-radius: 14px;
+  padding: 6px;
+  box-shadow:
+    0 14px 32px rgba(0, 0, 0, 0.55),
+    0 0 0 1px rgba(168, 193, 82, 0.10);
+  display: none;
+  max-height: 240px;
+  overflow-y: auto;
+  z-index: 50;
+}
+.klo-input-row.has-slash .klo-slash-popover { display: block; }
+.klo-slash-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background 100ms;
+}
+.klo-slash-row:hover,
+.klo-slash-row.is-active { background: rgba(168, 193, 82, 0.08); }
+.klo-slash-row.is-active { background: rgba(168, 193, 82, 0.14); }
+.klo-slash-row-icon {
+  width: 22px; height: 22px; border-radius: 6px;
+  display: inline-flex; align-items: center; justify-content: center;
+  overflow: hidden;
+  background: rgba(241, 236, 229, 0.06);
+  flex: 0 0 22px;
+}
+.klo-slash-row-icon img { width: 18px; height: 18px; object-fit: contain; }
+.klo-slash-row-icon.monogram {
+  background: var(--brand-tint, rgba(168, 193, 82, 0.18));
+  color: var(--brand-color, var(--klo-olive));
+  font-family: var(--klo-mono);
+  font-size: 10px;
+  font-weight: 600;
+}
+.klo-slash-row-name {
+  flex: 1;
+  font-size: 13px;
+  color: var(--klo-fg);
+  line-height: 1.2;
+}
+.klo-slash-row-slug {
+  font-family: var(--klo-mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  color: var(--klo-fg-45);
+}
+.klo-slash-row-enter {
+  font-family: var(--klo-mono);
+  font-size: 11px;
+  color: var(--klo-fg-45);
+  display: none;
+}
+.klo-slash-row.is-active .klo-slash-row-enter { display: inline; }
+.klo-slash-row-status {
+  font-family: var(--klo-mono);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  padding: 2px 7px;
+  border: none;
+  border-radius: 999px;
+  color: var(--klo-olive);
+  background: rgba(168, 193, 82, 0.14);
+  display: none;
+  cursor: pointer;
+  transition: color 120ms, background 120ms;
+}
+.klo-slash-row.is-connected .klo-slash-row-status { display: inline; }
+.klo-slash-row.is-connected .klo-slash-row-status:hover:not(:disabled),
+.klo-slash-row.is-confirm .klo-slash-row-status {
+  color: var(--klo-error);
+  background: rgba(220, 38, 38, 0.12);
+}
+.klo-slash-row-status:disabled { cursor: default; opacity: 0.7; }
+
+/* ─── Input row ──────────────────────────────────────────────────
+   Single outlined capsule — cream KloGlyph on the left, mono
+   textarea, apps + button, send circle. Mirrors iOS ScopeChipInput
+   so the floating overlay matches the side panel matches the iOS
+   app. Olive hairline breathes brighter as the user types. */
+.klo-input-row {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  margin: 0 12px 8px;
+  border-radius: 16px;
+  border: 0.75px solid rgba(168, 193, 82, 0.30);
+  background: transparent;
+  position: relative;
+  transition: border-color 180ms;
+}
+.klo-input-row:focus-within { border-color: rgba(168, 193, 82, 0.45); }
+.klo-input-row.has-input { border-color: rgba(168, 193, 82, 0.55); }
+.klo-input-glyph {
+  flex: 0 0 16px;
+  width: 16px;
+  height: 16px;
+  opacity: 0.45;
+  user-select: none;
+  -webkit-user-drag: none;
+  pointer-events: none;
+}
+.klo-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  padding: 4px 0;
+  color: var(--klo-fg);
+  font-family: var(--klo-mono);
+  font-size: 14px;
+  letter-spacing: 0.01em;
+  line-height: 1.45;
+  resize: none;
+  outline: none;
+  max-height: 140px;
+  min-height: 20px;
+  box-sizing: border-box;
+}
+.klo-input::placeholder { color: var(--klo-fg-45); }
+.klo-apps-btn {
+  flex: 0 0 28px;
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  background: transparent;
+  color: rgba(241, 236, 229, 0.55);
+  border: 0.75px solid rgba(241, 236, 229, 0.18);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 120ms, border-color 120ms, background 120ms;
+}
+.klo-apps-btn:hover {
+  color: var(--klo-olive);
+  border-color: rgba(168, 193, 82, 0.55);
+  background: rgba(168, 193, 82, 0.06);
+}
+.klo-apps-btn svg { display: block; }
+.klo-input-row.has-slash .klo-apps-btn {
+  color: var(--klo-olive);
+  border-color: rgba(168, 193, 82, 0.55);
+}
+.klo-send-btn-wrap {
+  position: relative;
+  flex: 0 0 28px;
+}
+.klo-send-btn-glow {
+  position: absolute;
+  inset: -3px;
+  border-radius: 999px;
+  pointer-events: none;
+  display: none;
+}
+.klo-input-row.has-input .klo-send-btn-glow {
+  display: block;
+  animation: klo-send-breathe 2.4s ease-in-out infinite;
+}
+@keyframes klo-send-breathe {
+  0%, 100% { box-shadow: 0 0 8px rgba(168,193,82,0.18), 0 0 14px rgba(168,193,82,0.08); }
+  50%      { box-shadow: 0 0 14px rgba(168,193,82,0.36), 0 0 28px rgba(168,193,82,0.16); }
+}
+.klo-send-btn {
+  position: relative;
+  z-index: 1;
+  width: 28px;
+  height: 28px;
+  background: transparent;
+  color: var(--klo-fg);
+  border: 0.75px solid rgba(241, 236, 229, 0.18);
+  border-radius: 999px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: border-color 120ms, opacity 120ms;
+  opacity: 0.35;
+}
+.klo-send-btn svg { display: block; }
+.klo-send-btn:disabled { cursor: default; }
+.klo-input-row.has-input .klo-send-btn:not(:disabled) {
+  opacity: 1;
+  border-color: rgba(168, 193, 82, 0.55);
+}
+
+.klo-stop-btn {
+  display: none;
+  width: 28px;
+  height: 28px;
+  background: rgba(168, 193, 82, 0.10);
+  color: var(--klo-olive);
+  border: 0.75px solid rgba(168, 193, 82, 0.55);
+  border-radius: 999px;
+  cursor: pointer;
+  align-items: center;
+  justify-content: center;
+  transition: background 120ms, border-color 120ms, transform 120ms;
+}
+.klo-stop-btn:hover {
+  background: rgba(168, 193, 82, 0.20);
+  border-color: rgba(168, 193, 82, 0.85);
+  transform: scale(1.04);
+}
+.klo-stop-btn svg { display: block; }
+.klo-input-row.is-working .klo-send-btn-wrap { display: none; }
+.klo-input-row.is-working .klo-stop-btn { display: flex; }
+
+/* Fiery glow around the panel card while the agent is working. The
+   keyframes pulse the existing orange ring brighter and lift the
+   surrounding bloom. We layer on TOP of the card's static
+   .klo-panel-inner box-shadow so we don't lose the lift shadow when
+   the animation is mid-cycle. */
+@keyframes klo-fire-glow {
+  0%, 100% {
+    box-shadow:
+      0 8px 24px rgba(10, 10, 10, 0.18),
+      0 0 0 1px rgba(168, 193, 82, 0.30),
+      0 0 28px rgba(168, 193, 82, 0.30);
+  }
+  50% {
+    box-shadow:
+      0 8px 28px rgba(10, 10, 10, 0.22),
+      0 0 0 2px rgba(168, 193, 82, 0.55),
+      0 0 56px rgba(168, 193, 82, 0.55);
+  }
+}
+.klo-panel-inner.is-working {
+  animation: klo-fire-glow 2.4s ease-in-out infinite;
+  border-color: rgba(168, 193, 82, 0.65);
+}
+
+.klo-footer-hint {
+  flex: 0 0 auto;
+  font-family: var(--klo-mono);
+  font-size: 9px;
+  color: var(--klo-fg-45);
+  padding: 0 16px 10px;
+  text-align: center;
+  letter-spacing: 0.18em;
+  text-transform: lowercase;
+}
+.klo-footer-hint kbd {
+  font-family: inherit;
+  font-size: 9px;
+  padding: 2px 5px;
+  background: var(--klo-bg-input);
+  border: 1px solid var(--klo-border);
+  border-radius: 4px;
+  color: var(--klo-fg-80);
+}

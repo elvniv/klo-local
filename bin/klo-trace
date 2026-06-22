@@ -1,0 +1,116 @@
+#!/usr/bin/env python3
+"""klo-trace — show what tools the agent actually ran for a recent run.
+
+Usage:
+  bin/klo-trace                 # most recent run
+  bin/klo-trace <run_id>        # specific run
+  bin/klo-trace --list          # list recent run IDs
+
+Reads from the desktop_api at http://127.0.0.1:8787. Run klo-up first.
+"""
+from __future__ import annotations
+
+import json
+import re
+import sys
+import urllib.request
+from urllib.error import URLError
+
+API = "http://127.0.0.1:8787"
+
+
+def _get(path: str):
+    try:
+        with urllib.request.urlopen(f"{API}{path}", timeout=2) as r:
+            return json.loads(r.read())
+    except URLError as e:
+        print(f"klo-trace: can't reach desktop_api at {API} — is klo-up running? ({e})")
+        sys.exit(1)
+
+
+def _recent_run_ids() -> list[str]:
+    """Scrape recent run IDs from the desktop_api log file. The desktop_api
+    doesn't expose a list endpoint, but every POST /runs is logged."""
+    import pathlib
+    log = pathlib.Path("/tmp/klo-desktop_api.log")
+    if not log.exists():
+        return []
+    ids: list[str] = []
+    seen: set[str] = set()
+    pat = re.compile(r"runs/([0-9a-f-]{36})")
+    for line in log.read_text(errors="ignore").splitlines():
+        m = pat.search(line)
+        if m and m.group(1) not in seen:
+            seen.add(m.group(1))
+            ids.append(m.group(1))
+    return ids
+
+
+def _trace(run_id: str) -> None:
+    data = _get(f"/runs/{run_id}")
+    if "error" in data:
+        print(f"klo-trace: run {run_id} not found")
+        sys.exit(1)
+
+    print(f"run: {run_id}")
+    print(f"prompt: {data.get('prompt','')[:200]}")
+    print(f"status: {data.get('status','?')}")
+    print()
+
+    for ev in data.get("events", []):
+        t = ev.get("type")
+        p = ev.get("payload", {}) or {}
+        if t == "step_progress":
+            name = p.get("name", "?")
+            action = p.get("action", "")
+            detail = (p.get("detail", "") or "").replace("\n", " ⏎ ")[:140]
+            print(f"  → {name}.{action}  {detail}")
+        elif t == "tool_result":
+            text = (p.get("text", "") or "").replace("\n", " ⏎ ")[:140]
+            print(f"    ← {text}")
+        elif t == "agent_thought":
+            text = (p.get("text", "") or "").replace("\n", " ⏎ ")[:140]
+            print(f"  💭 {text}")
+        elif t == "final_message":
+            print()
+            print("FINAL:")
+            print(p.get("text", ""))
+        elif t == "status_change":
+            print(f"  [{p.get('status','?')}]")
+
+
+def main() -> None:
+    args = sys.argv[1:]
+    if args and args[0] in ("-h", "--help"):
+        print(__doc__)
+        return
+
+    if args and args[0] == "--list":
+        ids = _recent_run_ids()
+        if not ids:
+            print("klo-trace: no runs found in /tmp/klo-desktop_api.log")
+            return
+        for rid in ids[-20:]:
+            try:
+                d = _get(f"/runs/{rid}")
+                if "error" in d:
+                    continue
+                prompt = (d.get("prompt", "") or "").replace("\n", " ")[:80]
+                print(f"  {rid}  [{d.get('status','?'):9}]  {prompt}")
+            except Exception:
+                continue
+        return
+
+    if args:
+        _trace(args[0])
+        return
+
+    ids = _recent_run_ids()
+    if not ids:
+        print("klo-trace: no runs found. Send a query first.")
+        sys.exit(1)
+    _trace(ids[-1])
+
+
+if __name__ == "__main__":
+    main()

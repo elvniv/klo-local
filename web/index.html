@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>klo</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="demo-stage">
+      <section class="trace-shell">
+        <header class="trace-header">
+          <div>
+            <p class="eyebrow">klo monitor</p>
+            <h1>Run Traces</h1>
+          </div>
+          <button id="refresh-runs" type="button">Refresh</button>
+        </header>
+        <div class="trace-grid">
+          <aside>
+            <h2>Recent Runs</h2>
+            <ol id="run-list" class="run-list"></ol>
+          </aside>
+          <section class="trace-detail">
+            <h2 id="trace-title">Select a run</h2>
+            <p id="trace-meta" class="muted">Run details and screenshots will appear here.</p>
+            <ol id="trace-events" class="trace-events"></ol>
+          </section>
+        </div>
+      </section>
+    </main>
+
+    <section id="klo-widget" class="widget idle" aria-label="klo command panel">
+      <button id="orb" class="orb" aria-label="Open klo">
+        <img src="/assets/klo-logo.svg" alt="" />
+      </button>
+
+      <div class="panel" aria-hidden="true">
+        <header>
+          <div class="brand">
+            <img src="/assets/klo-logo.svg" alt="" />
+            <div>
+              <strong>klo</strong>
+              <span id="status">ready</span>
+            </div>
+          </div>
+          <button id="close" aria-label="Collapse klo">Esc</button>
+        </header>
+
+        <form id="prompt-form">
+          <textarea id="prompt" rows="3" placeholder="Ask klo to do something on your Mac..."></textarea>
+          <button type="submit">Run</button>
+        </form>
+
+        <div class="permissions">
+          <div>
+            <strong>Permissions</strong>
+            <span id="permissions-summary">checking...</span>
+          </div>
+          <button id="check-permissions" type="button">Check</button>
+        </div>
+
+        <ol id="events" class="events"></ol>
+      </div>
+    </section>
+
+    <script src="/app.js" type="module"></script>
+  </body>
+</html>

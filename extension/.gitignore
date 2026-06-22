@@ -1,0 +1,6 @@
+# RSA private key used to derive the manifest "key" public-key blob
+# (which pins the extension's chrome-extension://<EXT_ID> URL across
+# unpacked installs). The PUBLIC key is in manifest.json and may be
+# committed; the PRIVATE key here is what would let someone publish a
+# .crx that Chrome treats as the same extension. Never commit.
+.key.pem

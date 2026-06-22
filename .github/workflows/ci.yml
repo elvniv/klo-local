@@ -1,0 +1,42 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  test:
+    # macOS runner is required because the test suite imports pyobjc
+    # frameworks (AppKit, Quartz, ScreenCaptureKit). Most tests mock the
+    # actual native calls, but the imports themselves only resolve on Darwin.
+    runs-on: macos-14
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: install Python 3.11
+        run: uv python install 3.11
+
+      - name: sync deps (incl. dev extras)
+        run: uv sync --extra dev
+
+      - name: pytest
+        env:
+          # Tests must not hit real APIs; placeholder keys are fine.
+          ANTHROPIC_API_KEY: test
+          OPENAI_API_KEY: test
+        run: uv run pytest tests/ -q
+
+      - name: validate mac project generation
+        run: |
+          brew install xcodegen
+          cd desktop-mac
+          xcodegen generate

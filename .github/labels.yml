@@ -1,0 +1,18 @@
+- name: good first issue
+  color: "7057ff"
+  description: Small, well-scoped contributor task
+- name: tools
+  color: "0e8a16"
+  description: Agent tools and tool safety
+- name: mac
+  color: "1d76db"
+  description: Native macOS app
+- name: extension
+  color: "5319e7"
+  description: Chrome extension and browser bridge
+- name: privacy
+  color: "d93f0b"
+  description: Privacy, permissions, and trust boundary
+- name: docs
+  color: "0075ca"
+  description: Documentation

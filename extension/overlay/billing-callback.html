@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>klo billing</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+  <style>
+    /* Same iOS SignInScreen vocabulary as auth-callback — always-dark
+       stage, cream wordmark, olive bloom anchored bottom, metadata
+       tagline with olive rules, monospace footer. Continuous surface
+       so the post-Stripe moment doesn't break the spell. */
+    :root {
+      color-scheme: dark;
+      --klo-black:   #0A0A0A;
+      --klo-cream:   #F1ECE5;
+      --klo-olive:   #A8C152;
+      --klo-oliveHi: #BED56F;
+      --klo-mono:    "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+      --error:       #DC2626;
+    }
+    *, *::before, *::after { box-sizing: border-box; }
+    ::selection { background: var(--klo-olive); color: var(--klo-black); }
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: var(--klo-black);
+      color: var(--klo-cream);
+      font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+      min-height: 100vh;
+      -webkit-font-smoothing: antialiased;
+    }
+    body {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 32px 24px;
+      position: relative;
+      overflow: hidden;
+    }
+    body:before {
+      content: "";
+      position: fixed;
+      left: 50%;
+      bottom: -120px;
+      transform: translateX(-50%);
+      width: 720px;
+      height: 360px;
+      background: radial-gradient(ellipse at center,
+                    rgba(168,193,82,0.22) 0%,
+                    rgba(168,193,82,0.09) 40%,
+                    transparent 72%);
+      filter: blur(18px);
+      pointer-events: none;
+      z-index: 0;
+    }
+    .card {
+      position: relative;
+      width: 100%;
+      max-width: 380px;
+      padding: 28px 24px 24px;
+      z-index: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 18px;
+      text-align: center;
+    }
+    .glyph {
+      height: 36px;
+      width: auto;
+      opacity: 0.92;
+      user-select: none;
+      -webkit-user-drag: none;
+    }
+    .tagline {
+      display: inline-flex;
+      align-items: center;
+      gap: 14px;
+      margin-top: 2px;
+    }
+    .tagline-rule {
+      width: 28px;
+      height: 0.5px;
+      background: rgba(168, 193, 82, 0.55);
+    }
+    .tagline-text {
+      font-family: var(--klo-mono);
+      font-size: 10px;
+      font-weight: 500;
+      letter-spacing: 0.24em;
+      text-transform: uppercase;
+      color: rgba(241, 236, 229, 0.55);
+      line-height: 1;
+    }
+    h1 {
+      font-size: 32px;
+      font-weight: 300;
+      letter-spacing: -0.025em;
+      line-height: 1.02;
+      margin: 6px 0 4px;
+    }
+    p.lede {
+      font-family: var(--klo-mono);
+      font-size: 12px;
+      letter-spacing: 0.04em;
+      color: rgba(241, 236, 229, 0.70);
+      line-height: 1.55;
+      margin: 0;
+      max-width: 320px;
+    }
+    .status {
+      margin-top: 4px;
+      padding: 10px 14px;
+      font-family: var(--klo-mono);
+      font-size: 11px;
+      letter-spacing: 0.02em;
+      border-radius: 10px;
+      display: none;
+      line-height: 1.5;
+      max-width: 300px;
+    }
+    .status.err {
+      display: block;
+      border: 1px solid rgba(220, 38, 38, 0.30);
+      color: var(--error);
+      background: rgba(220, 38, 38, 0.06);
+    }
+    .footer {
+      margin-top: 14px;
+      font-family: var(--klo-mono);
+      font-size: 11px;
+      letter-spacing: 0.03em;
+      color: rgba(241, 236, 229, 0.40);
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <img class="glyph" src="klo-logo-white.png" alt="klo" draggable="false" />
+    <div class="tagline" id="tag" aria-hidden="true">
+      <span class="tagline-rule"></span>
+      <span class="tagline-text" id="tag-label">SUBSCRIPTION ACTIVE</span>
+      <span class="tagline-rule"></span>
+    </div>
+    <h1 id="title">all set.</h1>
+    <p class="lede" id="subtitle">klo is ready. you can close this tab.</p>
+    <div id="status" class="status"></div>
+    <div class="footer">getklo.com</div>
+  </div>
+  <script src="billing-callback.js"></script>
+</body>
+</html>

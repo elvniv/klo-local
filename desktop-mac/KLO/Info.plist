@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>$(DEVELOPMENT_LANGUAGE)</string>
+	<key>CFBundleDisplayName</key>
+	<string>klo</string>
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>klo</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>2.1.3</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.klo.auth</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>klo</string>
+				<string>klo-desktop</string>
+			</array>
+		</dict>
+	</array>
+	<key>CFBundleVersion</key>
+	<string>482</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>14.0</string>
+	<key>NSAccessibilityUsageDescription</key>
+	<string>klo needs Accessibility to move your cursor and press keys for you. Without it, the agent can't act on your screen.</string>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>klo uses Apple Events to drive scriptable apps like Notes, Calendar, and Music when you ask it to.</string>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>klo uses the microphone only when you trigger voice mode (⌘⇧K) — never in the background.</string>
+	<key>NSScreenCaptureUsageDescription</key>
+	<string>klo captures screenshots of the active app so the model can see what you see. Captures only happen during a turn you started.</string>
+	<key>SUEnableAutomaticChecks</key>
+	<false/>
+	<key>SUPublicEDKey</key>
+	<string></string>
+</dict>
+</plist>

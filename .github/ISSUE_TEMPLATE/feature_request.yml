@@ -1,0 +1,26 @@
+name: Feature request
+description: Suggest a tool, browser improvement, Mac UX improvement, or doc
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What should KLO Local do better?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed approach
+      description: Mention files or tools if you already know where this belongs.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - tools
+        - mac
+        - extension
+        - privacy
+        - docs
+        - tests

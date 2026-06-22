@@ -1,0 +1,69 @@
+{
+  "manifest_version": 3,
+  "name": "klo browser agent",
+  "short_name": "klo",
+  "version": "0.9.3",
+  "description": "Hit ⌥K anywhere on the web. Tell klo what to do. It reads, clicks, fills forms, and gets it done.",
+  "homepage_url": "https://getklo.com",
+  "permissions": [
+    "tabs",
+    "scripting",
+    "activeTab",
+    "storage",
+    "sidePanel",
+    "alarms",
+    "debugger"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "overlay/overlay.css",
+        "overlay/auth-callback.html",
+        "overlay/auth-callback.js",
+        "overlay/billing-callback.html",
+        "overlay/billing-callback.js",
+        "overlay/composio-callback.html",
+        "overlay/composio-callback.js",
+        "overlay/klo-logo-black.png",
+        "overlay/klo-logo-white.png",
+        "overlay/klo-logo.svg",
+        "lib/composio.js",
+        "composio/*.png"
+      ],
+      "matches": ["<all_urls>"]
+    }
+  ],
+  "commands": {
+    "toggle-chat": {
+      "suggested_key": {
+        "default": "Alt+K",
+        "mac": "Alt+K"
+      },
+      "description": "Open klo in your browser"
+    }
+  },
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  },
+  "action": {
+    "default_title": "klo (⌥K)",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png",
+      "48": "icons/icon-48.png",
+      "128": "icons/icon-128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  }
+}

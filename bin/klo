@@ -1,0 +1,191 @@
+#!/bin/bash
+# bin/klo — flip klo between local and prod cloud backends in one line.
+#
+# What this controls:
+#   • Mac app's KLO_CLOUD_URL: where it talks to klo_cloud for auth,
+#     billing, /voice/realtime/ephemeral-key, /chat/llm-turn proxy.
+#
+# What this DOES NOT touch:
+#   • Agent sidecar on 127.0.0.1:8787 — always local. No remote option.
+#   • Mac↔Mac MacOpsServer on 127.0.0.1:8788 — internal, irrelevant.
+#   • Extension's hardcoded KLO_CLOUD_URL — Chrome can't read shell env,
+#     edit extension/sidepanel.js etc. by hand if you're testing the
+#     extension against local cloud.
+#
+# Usage:
+#   bin/klo local         — start local klo_cloud on :8789, point KLO at it
+#   bin/klo prod          — kill local klo_cloud, point KLO at Render
+#   bin/klo               — show current mode + health
+#   bin/klo restart       — re-apply current mode (re-launch KLO + sidecar)
+#
+# How the env var lands inside KLO:
+#   `launchctl setenv` puts a var into the user's launchd session. macOS
+#   apps launched via Launch Services (open, Spotlight, Dock) inherit
+#   that session's environment. AccountManager.swift:78 already reads
+#   ProcessInfo.processInfo.environment["KLO_CLOUD_URL"]. No Swift
+#   change needed — just flip the env and relaunch.
+
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+LOCAL_PORT=8789
+LOCAL_URL="http://127.0.0.1:$LOCAL_PORT"
+PROD_URL="https://klo-cloud.onrender.com"
+PID_FILE="$ROOT/.klo-cloud.local.pid"
+LOG_FILE="$ROOT/.klo-cloud.local.log"
+KLO_APP="$HOME/Library/Developer/Xcode/DerivedData/KLO-hkpdjchkepqlwmbqhwczjdhtwgoa/Build/Products/Debug/KLO.app"
+
+# ─── helpers ──────────────────────────────────────────────────────────
+say()  { printf '▶︎ %s\n' "$*"; }
+ok()   { printf '  ✓ %s\n' "$*"; }
+warn() { printf '  ! %s\n' "$*" >&2; }
+die()  { printf '✗ %s\n' "$*" >&2; exit 1; }
+
+current_url() {
+  launchctl getenv KLO_CLOUD_URL 2>/dev/null || echo ""
+}
+
+local_cloud_running() {
+  if [ -f "$PID_FILE" ] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null; then
+    return 0
+  fi
+  return 1
+}
+
+local_cloud_healthy() {
+  curl -sf --max-time 1 "$LOCAL_URL/health" >/dev/null 2>&1
+}
+
+klo_running() {
+  pgrep -f "KLO.app/Contents/MacOS/KLO" >/dev/null 2>&1
+}
+
+stop_local_cloud() {
+  if local_cloud_running; then
+    say "stopping local klo_cloud"
+    kill "$(cat "$PID_FILE")" 2>/dev/null || true
+    sleep 0.5
+    pkill -f "uvicorn klo_cloud.app:app" 2>/dev/null || true
+    rm -f "$PID_FILE"
+    ok "stopped"
+  fi
+}
+
+start_local_cloud() {
+  if local_cloud_healthy; then
+    ok "local klo_cloud already healthy on $LOCAL_URL"
+    return 0
+  fi
+  if local_cloud_running; then
+    warn "stale PID file — clearing and restarting"
+    rm -f "$PID_FILE"
+  fi
+  if ! lsof -iTCP:$LOCAL_PORT -sTCP:LISTEN >/dev/null 2>&1; then
+    say "starting local klo_cloud on :$LOCAL_PORT"
+    (
+      cd "$ROOT"
+      KLO_CLOUD_PORT=$LOCAL_PORT \
+      nohup uv run uvicorn klo_cloud.app:app --reload --port $LOCAL_PORT \
+        >> "$LOG_FILE" 2>&1 &
+      echo $! > "$PID_FILE"
+    )
+    # Wait up to 6s for it to come up.
+    for i in 1 2 3 4 5 6; do
+      sleep 1
+      if local_cloud_healthy; then
+        ok "klo_cloud healthy on $LOCAL_URL  (logs: $LOG_FILE)"
+        return 0
+      fi
+    done
+    die "klo_cloud didn't come up in 6s — tail $LOG_FILE for details"
+  else
+    warn "port $LOCAL_PORT is already bound but health check failed — something else is on it"
+    return 1
+  fi
+}
+
+restart_klo() {
+  if klo_running; then
+    say "restarting KLO so it picks up the new KLO_CLOUD_URL"
+    osascript -e 'tell application "KLO" to quit' 2>/dev/null || true
+    sleep 0.5
+    pkill -f "KLO.app/Contents/MacOS/KLO" 2>/dev/null || true
+    sleep 0.5
+  else
+    say "launching KLO"
+  fi
+  if [ ! -d "$KLO_APP" ]; then
+    warn "no built KLO.app at $KLO_APP — run scripts/run.sh first, or launch manually"
+    return 0
+  fi
+  open "$KLO_APP"
+  sleep 1
+  if klo_running; then
+    ok "KLO is up"
+  else
+    warn "KLO didn't appear to start — check Console.app for crash logs"
+  fi
+}
+
+print_status() {
+  local url; url=$(current_url)
+  printf '\n'
+  if [ -z "$url" ]; then
+    printf '  mode:       \033[1mprod\033[0m (default)\n'
+    printf '  cloud URL:  %s\n' "$PROD_URL"
+  elif [ "$url" = "$LOCAL_URL" ]; then
+    printf '  mode:       \033[1mlocal\033[0m\n'
+    printf '  cloud URL:  %s\n' "$url"
+    if local_cloud_healthy; then
+      printf '  klo_cloud:  ✓ healthy on :%s\n' "$LOCAL_PORT"
+    else
+      printf '  klo_cloud:  ✗ not responding — `bin/klo local` to start it\n'
+    fi
+  else
+    printf '  mode:       \033[1mcustom\033[0m\n'
+    printf '  cloud URL:  %s\n' "$url"
+  fi
+  if klo_running; then
+    printf '  KLO.app:    ✓ running (pid %s)\n' "$(pgrep -f 'KLO.app/Contents/MacOS/KLO' | head -1)"
+  else
+    printf '  KLO.app:    ✗ not running\n'
+  fi
+  printf '\n'
+}
+
+# ─── commands ─────────────────────────────────────────────────────────
+
+cmd="${1:-status}"
+
+case "$cmd" in
+  local)
+    start_local_cloud
+    say "setting KLO_CLOUD_URL → $LOCAL_URL"
+    launchctl setenv KLO_CLOUD_URL "$LOCAL_URL"
+    ok "env set"
+    restart_klo
+    print_status
+    ;;
+
+  prod)
+    stop_local_cloud
+    say "clearing KLO_CLOUD_URL → falls back to $PROD_URL"
+    launchctl unsetenv KLO_CLOUD_URL 2>/dev/null || true
+    ok "env cleared"
+    restart_klo
+    print_status
+    ;;
+
+  restart)
+    restart_klo
+    print_status
+    ;;
+
+  status|"")
+    print_status
+    ;;
+
+  *)
+    die "usage: bin/klo [local|prod|restart|status]"
+    ;;
+esac

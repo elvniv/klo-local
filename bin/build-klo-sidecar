@@ -1,0 +1,75 @@
+#!/bin/bash
+# Build the agent2.desktop_api PyInstaller bundle for shipping inside KLO.app.
+#
+# Outputs:
+#   desktop-mac/sidecar-build/klo-sidecar/
+#     klo-sidecar      <- the launcher binary AppDelegate exec()s
+#     _internal/       <- bundled Python interpreter + deps
+#
+# Run on every release. Local dev launches the sidecar via `uv run` for hot
+# reload; only the shipped .app uses the bundle.
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+SPEC="$ROOT/desktop-mac/sidecar.spec"
+WORK="$ROOT/desktop-mac/sidecar-build"
+
+if [ ! -f "$SPEC" ]; then
+  echo "missing $SPEC — sidecar.spec not found"
+  exit 1
+fi
+
+echo "── building klo-sidecar bundle ──"
+echo "    spec:  $SPEC"
+echo "    work:  $WORK"
+echo
+
+# PyInstaller writes intermediate files into ./build/ and final output into
+# ./dist/. We point both at sidecar-build/ so the repo doesn't get scattered
+# top-level junk dirs.
+cd "$WORK"
+mkdir -p .
+rm -rf build dist
+
+uv run python -m PyInstaller \
+  --workpath "$WORK/build" \
+  --distpath "$WORK/dist" \
+  --noconfirm \
+  --clean \
+  "$SPEC"
+
+# Promote the dist tree to a stable path Xcode build phases reference.
+rm -rf "$WORK/klo-sidecar"
+mv "$WORK/dist/klo-sidecar" "$WORK/klo-sidecar"
+rm -rf "$WORK/build" "$WORK/dist"
+
+# Sign with the Developer ID cert + hardened runtime + sidecar entitlements.
+# Without this, TCC stores grants against an ad-hoc cdhash that flips on
+# every PyInstaller rebuild, and the user has to re-grant every iteration.
+# With Developer ID, TCC stores against (bundle id + Team ID + Apple anchor)
+# and grants persist across rebuilds and future user updates.
+SIDECAR_IDENTITY="8006AC5E3D862444CDD80720F651139C7751AFDF"  # Developer ID Application: Klorah, Inc (22CSZ5CPW5) — by SHA-1 to disambiguate from the older cert with the same name
+SIDECAR_ENT="$ROOT/desktop-mac/Distribution/sidecar.entitlements"
+echo "── codesigning sidecar bundle with Developer ID ──"
+# Sign nested dylibs/sos first (hardened runtime requires every loaded
+# binary to be signed; PyInstaller's frozen Python loads many .so files).
+find "$WORK/klo-sidecar" \( -name "*.dylib" -o -name "*.so" \) \
+  -exec codesign --force --options runtime --timestamp \
+    --sign "$SIDECAR_IDENTITY" {} \;
+# Then sign the launcher binary with the entitlements.
+codesign --force --options runtime --timestamp \
+  --entitlements "$SIDECAR_ENT" \
+  --sign "$SIDECAR_IDENTITY" \
+  "$WORK/klo-sidecar/klo-sidecar"
+codesign --verify --strict --deep "$WORK/klo-sidecar/klo-sidecar" \
+  && echo "    sidecar signature OK"
+
+echo
+echo "── done ──"
+echo "    bundle:  $WORK/klo-sidecar/"
+echo "    binary:  $WORK/klo-sidecar/klo-sidecar"
+echo "    size:    $(du -sh "$WORK/klo-sidecar" | awk '{print $1}')"
+echo
+echo "Smoke test:"
+echo "    KLO_CLOUD_ENV=development $WORK/klo-sidecar/klo-sidecar &"
+echo "    curl -s http://127.0.0.1:8787/health"

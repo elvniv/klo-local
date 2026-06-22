@@ -1,0 +1,105 @@
+#!/bin/bash
+# klo-up — start the agent2 desktop_api (which hosts the bridge inside it)
+# and the Swift KLO desktop app (notch UI). Auto-restarts the api if it dies.
+#
+# The legacy Electron klo-agent-ui has been replaced by the Swift app at
+# /Users/elvin/klo/desktop-mac. klo-up no longer launches the Electron UI.
+# If you still need it for some reason, set KLO_LAUNCH_ELECTRON=1.
+#
+# Usage:
+#   bin/klo-up           # start everything, print logs to terminal
+#   bin/klo-up --quiet   # send logs to /tmp/, return immediately
+#
+# Stop with Ctrl-C (foreground) or `bin/klo-down` (any time).
+
+set -e
+
+KLO_ROOT="${KLO_ROOT:-/Users/elvin/klo}"
+KLO_UI="${KLO_UI:-/Users/elvin/klo-agent-ui}"
+KLO_SWIFT_APP="${KLO_SWIFT_APP:-/Users/elvin/Library/Developer/Xcode/DerivedData/KLO-gurdhaeqrssrojfykumylmyzcgjp/Build/Products/Debug/KLO.app}"
+QUIET=0
+
+for arg in "$@"; do
+  case "$arg" in
+    -q|--quiet) QUIET=1 ;;
+  esac
+done
+
+echo "klo-up: starting"
+
+# Kill any old processes on our ports (don't leave zombies)
+for port in 8787 8767; do
+  pids=$(lsof -ti :$port 2>/dev/null || true)
+  if [ -n "$pids" ]; then
+    echo "  freeing :$port (killing $pids)"
+    echo "$pids" | xargs kill -9 2>/dev/null || true
+  fi
+done
+
+# Make sure the legacy Electron UI isn't lingering — we explicitly do NOT
+# want it running anymore. Kills the klo-agent-ui Electron process only;
+# leaves Cursor/Granola/etc. alone.
+pkill -f "klo-agent-ui/node_modules/electron" 2>/dev/null || true
+
+# Start desktop_api (which auto-starts the bridge inside the same process)
+cd "$KLO_ROOT"
+if [ "$QUIET" = "1" ]; then
+  uv run python -m agent2.desktop_api > /tmp/klo-desktop_api.log 2>&1 &
+  API_PID=$!
+  echo "  agent2.desktop_api → PID $API_PID  (log: /tmp/klo-desktop_api.log)"
+else
+  uv run python -m agent2.desktop_api &
+  API_PID=$!
+  echo "  agent2.desktop_api → PID $API_PID"
+fi
+
+# Wait for api to be ready
+for i in 1 2 3 4 5 6 7 8 9 10; do
+  if curl -s -m 1 http://127.0.0.1:8787/health >/dev/null 2>&1; then
+    echo "  ✓ api responding on :8787"
+    break
+  fi
+  sleep 0.6
+done
+
+# Start the Swift notch app (replaces the Electron UI). If it isn't built
+# yet, point the user at Xcode. We don't try to xcodebuild from here
+# because that would slow down klo-up by ~10s on first run.
+if [ -x "$KLO_SWIFT_APP/Contents/MacOS/KLO" ]; then
+  if ! pgrep -x KLO >/dev/null 2>&1; then
+    open "$KLO_SWIFT_APP"
+    sleep 0.5
+    if pgrep -x KLO >/dev/null 2>&1; then
+      echo "  ✓ KLO (Swift notch app) launched"
+    else
+      echo "  ! KLO failed to start — check Console.app for errors"
+    fi
+  else
+    echo "  ✓ KLO (Swift notch app) already running"
+  fi
+else
+  echo "  ! KLO.app not found at $KLO_SWIFT_APP"
+  echo "    Build it first: cd desktop-mac && xcodegen generate && open KLO.xcodeproj"
+fi
+
+# Optional escape hatch: only launch the legacy Electron UI if explicitly
+# requested with KLO_LAUNCH_ELECTRON=1. Off by default.
+if [ "${KLO_LAUNCH_ELECTRON:-0}" = "1" ] && [ -d "$KLO_UI" ]; then
+  cd "$KLO_UI"
+  if [ "$QUIET" = "1" ]; then
+    pnpm dev:desktop > /tmp/klo-desktop.log 2>&1 &
+    UI_PID=$!
+    echo "  klo electron (legacy) → PID $UI_PID  (log: /tmp/klo-desktop.log)"
+  else
+    pnpm dev:desktop &
+    UI_PID=$!
+    echo "  klo electron (legacy) → PID $UI_PID"
+  fi
+fi
+
+echo
+echo "klo-up: started. ⌘K anywhere = chat. Ctrl-C in this terminal stops everything."
+if [ "$QUIET" = "0" ]; then
+  trap "echo; echo 'klo-up: shutting down'; pkill -P $$ 2>/dev/null; exit 0" INT TERM
+  wait
+fi

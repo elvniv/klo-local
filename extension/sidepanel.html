@@ -1,0 +1,1630 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>klo</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+  <style>
+    /* ─── Brand tokens ────────────────────────────────────────────────
+       Matches the iOS app + Mac notch's Open vocabulary pixel-for-pixel:
+       always-dark stage, cream foreground, olive accent for every
+       interactive treatment — stop, paywall, error, retry. No orange
+       anywhere; the warm hues only exist on the Mac notch "acting"
+       fire which has no analog on the extension.
+
+       --klo-black   #0A0A0A   primary surface
+       --klo-olive   #A8C152   primary accent / CTA / errors
+       --klo-oliveHi #BED56F   hover
+       --klo-oliveLo #8FA847   pressed
+       --klo-cream   #F1ECE5   foreground (matches KloColors.cream)
+    */
+    :root {
+      color-scheme: dark;
+      --klo-black:    #0A0A0A;
+      --klo-cream:    #F1ECE5;
+      --klo-paper:    #FBF8F2;
+      --klo-olive:    #A8C152;
+      --klo-oliveHi:  #BED56F;
+      --klo-oliveLo:  #8FA847;
+
+      --bg:          var(--klo-black);
+      --bg-soft:     #161616;
+      --bg-input:    #161616;
+      --fg:          var(--klo-cream);
+      /* Opacity ramp mirrors KloColors.fg / .fg60 / .fg45 — the iOS
+         vocabulary bumps the quiet tiers to 70/55 so eyebrow + caption
+         text clears WCAG AA on near-black. Same numbers, same hierarchy. */
+      --fg-80:       rgba(241,236,229,0.85);
+      --fg-60:       rgba(241,236,229,0.70);
+      --fg-45:       rgba(241,236,229,0.55);
+      --border:        rgba(241,236,229,0.14);
+      --border-strong: rgba(241,236,229,0.22);
+      --border-faint:  rgba(241,236,229,0.08);
+      --error:       #DC2626;
+      --success:     var(--klo-olive);
+      --klo-mono: "JetBrains Mono", "SF Mono", ui-monospace, Menlo, monospace;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; }
+    *::selection {
+      background-color: var(--klo-olive);
+      color: var(--klo-black);
+    }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      width: 100%;
+      background: var(--bg);
+      color: var(--fg);
+      font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+      font-size: 14px;
+      line-height: 1.5;
+      overflow: hidden;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+    body { display: flex; flex-direction: column; }
+
+    /* ─── Header ───────────────────────────────────────────────────── */
+    .header {
+      flex: 0 0 auto;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--border);
+      position: relative;
+    }
+    /* Hide chrome (wordmark + title pill + menu) on the signin surface
+       so the iOS-style full-bleed SignInScreen vocabulary reads cleanly
+       — no double wordmark, no half-disabled controls. Body sets
+       .is-signedout when refreshAuthGate determines the user has no
+       token. */
+    body.is-signedout .header { display: none; }
+    body.is-signedout .footer-hint { display: none; }
+    .wordmark {
+      height: 18px;
+      width: auto;
+      user-select: none;
+      -webkit-user-drag: none;
+    }
+    .header-tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 9px 3px;
+      border: 1px solid var(--border);
+      background: var(--bg-soft);
+      border-radius: 999px;
+      font-family: "JetBrains Mono", ui-monospace, SF Mono, Menlo, monospace;
+      font-size: 9px;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--fg-60);
+      line-height: 1;
+      max-width: 60%;
+      cursor: pointer;
+      transition: border-color 120ms, color 120ms;
+    }
+    .header-tag:hover { border-color: var(--border-strong); color: var(--fg); }
+    /* Connected-apps stack — small row of overlapping brand glyphs
+       in the header, doubles as a button that opens the Apps picker.
+       Reads from background.composioListConnected; hidden when no
+       toolkits are connected. */
+    .header-apps {
+      display: none;
+      align-items: center;
+      gap: 5px;
+      padding: 3px 8px 3px 5px;
+      border: 0.75px solid var(--border);
+      background: transparent;
+      border-radius: 999px;
+      cursor: pointer;
+      flex: 0 0 auto;
+      transition: border-color 160ms, background 160ms;
+    }
+    .header-apps.is-visible { display: inline-flex; }
+    .header-apps:hover {
+      border-color: rgba(168, 193, 82, 0.55);
+      background: rgba(168, 193, 82, 0.06);
+    }
+    .header-apps-stack { display: inline-flex; align-items: center; }
+    .header-apps-stack > * {
+      width: 16px;
+      height: 16px;
+      border-radius: 5px;
+      border: 1px solid var(--bg);
+      margin-left: -5px;
+      background: rgba(241, 236, 229, 0.06);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+    }
+    .header-apps-stack > *:first-child { margin-left: 0; }
+    .header-apps-stack img { width: 14px; height: 14px; object-fit: contain; }
+    .header-apps-stack .monogram {
+      font-family: var(--klo-mono);
+      font-size: 8px;
+      font-weight: 600;
+      color: var(--brand-color, var(--klo-olive));
+      background: var(--brand-tint, rgba(168, 193, 82, 0.18));
+    }
+    .header-apps-label {
+      font-family: var(--klo-mono);
+      font-size: 9px;
+      letter-spacing: 0.08em;
+      color: var(--fg-60);
+      line-height: 1;
+    }
+    .header-tag-dot {
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      background: var(--klo-olive);
+      box-shadow: 0 0 6px rgba(168, 193, 82, 0.6);
+      flex: 0 0 auto;
+    }
+    .title-pill-text {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      max-width: 22ch;
+    }
+    .header-spacer { flex: 1; }
+    .menu-btn {
+      background: transparent;
+      border: none;
+      color: var(--fg-60);
+      cursor: pointer;
+      padding: 4px 8px;
+      border-radius: 6px;
+      font-size: 16px;
+      line-height: 1;
+      letter-spacing: 0.2em;
+    }
+    .menu-btn:hover { color: var(--fg); background: var(--border-faint); }
+
+    /* ─── Sign-in pane ─────────────────────────────────────────────────
+       Mirrors iOS SignInScreen exactly. Stage is always-black; KloGlyph
+       sits cream above a metadata-style tagline (two thin olive rules
+       flanking a wide-tracked monospace line), and the CTA is an
+       outline-only capsule with a cream Google-G disc on the left,
+       lowercase mono "continue with google" text, and a breathing
+       olive glow that pulses 2.4s like SignInScreen.kloFireGlow.
+    */
+    .signin {
+      flex: 1;
+      display: none;
+      flex-direction: column;
+      justify-content: center;
+      padding: 28px 24px 24px;
+      max-width: 380px;
+      width: 100%;
+      margin: 0 auto;
+      position: relative;
+      overflow: hidden;
+      text-align: center;
+    }
+    .signin.is-visible { display: flex; }
+    /* Soft olive bloom anchored to the bottom of the pane — the CSS
+       echo of MiniFireView. Not a literal fire, but the same surface
+       cue: "this is a warm dark stage, not just a dialog." */
+    .signin-bg {
+      position: absolute;
+      left: 50%;
+      bottom: -90px;
+      transform: translateX(-50%);
+      width: 380px;
+      height: 220px;
+      pointer-events: none;
+      background: radial-gradient(ellipse at center,
+                    rgba(168,193,82,0.18) 0%,
+                    rgba(168,193,82,0.08) 38%,
+                    transparent 70%);
+      filter: blur(14px);
+    }
+    .signin-form {
+      position: relative;
+      z-index: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 18px;
+    }
+    /* Glyph: cream wordmark, 48pt high (mirrors SignInScreen.glyph) */
+    .signin-glyph {
+      width: auto;
+      height: 32px;
+      opacity: 0.92;
+      user-select: none;
+      -webkit-user-drag: none;
+    }
+    /* Tagline row with the two olive rules — same proportions as iOS:
+       28px × 0.5px @ olive/55, wide-tracked monospace cream/55 text. */
+    .signin-tagline {
+      display: inline-flex;
+      align-items: center;
+      gap: 14px;
+      margin-top: 2px;
+    }
+    .signin-tagline-rule {
+      width: 28px;
+      height: 0.5px;
+      background: rgba(168, 193, 82, 0.55);
+    }
+    .signin-tagline-text {
+      font-family: var(--klo-mono);
+      font-size: 10px;
+      font-weight: 500;
+      letter-spacing: 0.24em;
+      text-transform: uppercase;
+      color: rgba(241, 236, 229, 0.55);
+      transition: opacity 0.4s ease, transform 0.4s ease;
+      line-height: 1;
+    }
+    .signin-tagline-text.is-fading {
+      opacity: 0;
+      transform: translateY(-3px);
+    }
+    /* First-run only: shows once after install. Same olive-tinted
+       hairline as the rest of the surface. */
+    .signin-firstrun-note {
+      display: none;
+      margin-top: 4px;
+      padding: 10px 14px;
+      border: 1px solid rgba(168, 193, 82, 0.22);
+      border-radius: 12px;
+      background: rgba(168, 193, 82, 0.06);
+      font-family: var(--klo-mono);
+      font-size: 11px;
+      color: var(--fg-60);
+      line-height: 1.55;
+      max-width: 280px;
+    }
+    .signin.is-firstrun .signin-firstrun-note { display: block; }
+    .signin-firstrun-note kbd {
+      font-family: var(--klo-mono);
+      font-size: 10.5px;
+      padding: 1px 6px;
+      border: 1px solid rgba(241, 236, 229, 0.18);
+      border-bottom-width: 2px;
+      border-radius: 5px;
+      color: var(--fg);
+      background: rgba(241, 236, 229, 0.04);
+      margin: 0 1px;
+    }
+    /* Outline-only capsule. No fill — just a thin olive stroke that
+       reads as a slot in the surface. The breathing glow lives in
+       .signin-cta-glow so disabled/loading state can pause it. */
+    .signin-cta-wrap {
+      position: relative;
+      margin-top: 6px;
+      width: 100%;
+      display: flex;
+      justify-content: center;
+    }
+    .signin-cta-glow {
+      position: absolute;
+      inset: -4px;
+      border-radius: 999px;
+      pointer-events: none;
+      box-shadow: 0 0 0 0 rgba(168,193,82,0);
+      animation: signin-cta-breathe 2.4s ease-in-out infinite;
+    }
+    @keyframes signin-cta-breathe {
+      0%, 100% { box-shadow: 0 0 12px rgba(168,193,82,0.18), 0 0 24px rgba(168,193,82,0.08); }
+      50%      { box-shadow: 0 0 22px rgba(168,193,82,0.40), 0 0 44px rgba(168,193,82,0.18); }
+    }
+    .btn-primary {
+      position: relative;
+      z-index: 1;
+      min-width: 240px;
+      padding: 12px 22px;
+      background: transparent;
+      color: rgba(241, 236, 229, 0.92);
+      border: 0.75px solid rgba(168, 193, 82, 0.55);
+      border-radius: 999px;
+      font: inherit;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      transition: border-color 160ms, transform 120ms, background 160ms;
+    }
+    .btn-primary:hover:not(:disabled) {
+      border-color: rgba(168, 193, 82, 0.85);
+      background: rgba(168, 193, 82, 0.06);
+      transform: scale(1.01);
+    }
+    .btn-primary:disabled {
+      opacity: 0.55;
+      cursor: default;
+    }
+    .btn-primary:disabled ~ .signin-cta-glow,
+    .signin-cta-wrap.is-loading .signin-cta-glow {
+      animation: none;
+      box-shadow: none;
+    }
+    /* Cream disc holding the Google G — 22pt circle, 13pt glyph, same
+       as iOS. Decouples the multi-color G from the olive stroke. */
+    .btn-primary .g-disc {
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      background: var(--klo-cream);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      flex: 0 0 22px;
+    }
+    .btn-primary .g-disc svg { width: 13px; height: 13px; display: block; }
+    .btn-primary .g-label {
+      font-family: var(--klo-mono);
+      font-size: 13px;
+      font-weight: 500;
+      letter-spacing: 0.06em;
+      text-transform: lowercase;
+      line-height: 1;
+    }
+
+    .terms {
+      margin-top: 14px;
+      font-family: var(--klo-mono);
+      font-size: 11px;
+      font-weight: 400;
+      letter-spacing: 0.03em;
+      color: rgba(241, 236, 229, 0.40);
+      text-align: center;
+      line-height: 1.5;
+      max-width: 280px;
+      margin-left: auto;
+      margin-right: auto;
+    }
+    .terms a {
+      color: rgba(241, 236, 229, 0.75);
+      text-decoration: underline;
+      text-underline-offset: 3px;
+      text-decoration-thickness: 0.5px;
+    }
+    .terms a:hover { color: var(--fg); }
+
+    .signin-feedback {
+      margin-top: 12px;
+      padding: 10px 14px;
+      font-family: var(--klo-mono);
+      font-size: 11px;
+      letter-spacing: 0.02em;
+      border-radius: 10px;
+      display: none;
+      line-height: 1.5;
+      max-width: 280px;
+    }
+    .signin-feedback.is-visible { display: block; }
+    .signin-feedback.ok  { border: 1px solid rgba(168, 193, 82, 0.35); color: var(--klo-olive); background: rgba(168, 193, 82, 0.06); }
+    .signin-feedback.err { border: 1px solid rgba(220, 38, 38, 0.30);  color: var(--error);    background: rgba(220, 38, 38, 0.06); }
+    .signin-feedback.info { border: 1px solid var(--border); color: var(--fg-80); background: var(--bg-soft); }
+
+    /* ─── Upsell pane (signed-in, no active subscription) ────────────
+       Same iOS SignInScreen surface vocabulary: cream wordmark,
+       metadata tagline with olive rules, font-light display headline,
+       outline-only CTA with breathing olive glow, monospace fineprint.
+       Only difference vs signin is the headline carries the value prop
+       and the CTA opens Stripe instead of Google. */
+    .upsell {
+      flex: 1;
+      display: none;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      padding: 28px 24px 24px;
+      max-width: 380px;
+      width: 100%;
+      margin: 0 auto;
+      text-align: center;
+      position: relative;
+      overflow: hidden;
+      gap: 18px;
+    }
+    .upsell.is-visible { display: flex; }
+    /* Same olive bloom anchored bottom as the signin pane. */
+    .upsell:before {
+      content: "";
+      position: absolute;
+      left: 50%;
+      bottom: -90px;
+      transform: translateX(-50%);
+      width: 380px;
+      height: 220px;
+      pointer-events: none;
+      background: radial-gradient(ellipse at center,
+                    rgba(168,193,82,0.18) 0%,
+                    rgba(168,193,82,0.08) 38%,
+                    transparent 70%);
+      filter: blur(14px);
+      z-index: 0;
+    }
+    .upsell > * { position: relative; z-index: 1; }
+    .upsell-glyph {
+      height: 32px;
+      width: auto;
+      opacity: 0.92;
+      user-select: none;
+      -webkit-user-drag: none;
+    }
+    .upsell-tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 14px;
+      margin-top: 2px;
+    }
+    .upsell-tag-rule {
+      width: 28px;
+      height: 0.5px;
+      background: rgba(168, 193, 82, 0.55);
+    }
+    .upsell-tag-text {
+      font-family: var(--klo-mono);
+      font-size: 10px;
+      font-weight: 500;
+      letter-spacing: 0.24em;
+      text-transform: uppercase;
+      color: rgba(241, 236, 229, 0.55);
+      line-height: 1;
+    }
+    .upsell h2 {
+      font-size: 32px;
+      font-weight: 300;
+      letter-spacing: -0.025em;
+      line-height: 1.02;
+      margin: 6px 0 0;
+      color: var(--fg);
+    }
+    .upsell-lede {
+      font-family: var(--klo-mono);
+      font-size: 12px;
+      letter-spacing: 0.04em;
+      color: rgba(241, 236, 229, 0.70);
+      line-height: 1.55;
+      margin: 0;
+    }
+    .upsell-cta-wrap {
+      position: relative;
+      margin-top: 6px;
+      display: inline-flex;
+      justify-content: center;
+    }
+    .upsell-cta-glow {
+      position: absolute;
+      inset: -4px;
+      border-radius: 999px;
+      pointer-events: none;
+      animation: signin-cta-breathe 2.4s ease-in-out infinite;
+    }
+    .upsell-cta-wrap.is-loading .upsell-cta-glow { animation: none; box-shadow: none; }
+    .upsell-cta {
+      position: relative;
+      z-index: 1;
+      min-width: 240px;
+      padding: 12px 22px;
+      background: transparent;
+      color: rgba(241, 236, 229, 0.92);
+      border: 0.75px solid rgba(168, 193, 82, 0.55);
+      border-radius: 999px;
+      font: inherit;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      transition: border-color 160ms, background 160ms, transform 120ms;
+    }
+    .upsell-cta:hover:not(:disabled) {
+      border-color: rgba(168, 193, 82, 0.85);
+      background: rgba(168, 193, 82, 0.06);
+      transform: scale(1.01);
+    }
+    .upsell-cta:disabled { opacity: 0.55; cursor: default; }
+    /* Cream disc holding the lock glyph — same vocabulary as the
+       Google G disc on the sign-in capsule. */
+    .upsell-cta .lock-disc {
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      background: var(--klo-cream);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      flex: 0 0 22px;
+      color: var(--klo-black);
+    }
+    .upsell-cta .lock-disc svg { width: 12px; height: 12px; display: block; }
+    .upsell-cta .upsell-cta-label {
+      font-family: var(--klo-mono);
+      font-size: 13px;
+      font-weight: 500;
+      letter-spacing: 0.06em;
+      text-transform: lowercase;
+      line-height: 1;
+    }
+
+    .upsell-already {
+      margin-top: 4px;
+      background: transparent;
+      color: rgba(241, 236, 229, 0.55);
+      border: none;
+      padding: 4px 8px;
+      font-family: var(--klo-mono);
+      font-size: 11px;
+      letter-spacing: 0.04em;
+      cursor: pointer;
+      text-decoration: underline;
+      text-underline-offset: 3px;
+      text-decoration-thickness: 0.5px;
+      transition: color 120ms;
+    }
+    .upsell-already:hover { color: var(--fg); }
+    .upsell-fineprint {
+      margin: 0;
+      font-family: var(--klo-mono);
+      font-size: 10px;
+      color: rgba(241, 236, 229, 0.40);
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      line-height: 1.5;
+    }
+
+    /* ─── Chat pane ────────────────────────────────────────────────── */
+    .chat {
+      flex: 1;
+      display: none;
+      flex-direction: column;
+      min-height: 0;
+    }
+    .chat.is-visible { display: flex; }
+
+    .body {
+      flex: 1;
+      overflow-y: auto;
+      padding: 24px 18px 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 22px;
+      scroll-behavior: smooth;
+    }
+    /* Empty-state guidance — quick-connect chips above the default
+       "tell klo what to do." placeholder. Three brand-themed pills,
+       click → opens the slash picker pre-filtered to that toolkit so
+       the user has a 1-tap path into Composio without typing /. */
+    .empty-hint {
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      gap: 16px;
+      margin: auto;
+      padding: 24px 20px;
+      text-align: center;
+    }
+    .body.is-empty .empty-hint { display: flex; }
+    .empty-hint-eyebrow {
+      font-family: var(--klo-mono);
+      font-size: 10px;
+      letter-spacing: 0.24em;
+      text-transform: uppercase;
+      color: var(--fg-45);
+    }
+    .empty-hint-chips {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 6px;
+    }
+    .empty-hint-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 6px 12px 6px 8px;
+      border: 0.75px solid var(--brand-edge, rgba(241, 236, 229, 0.18));
+      border-radius: 999px;
+      background: var(--brand-tint, transparent);
+      font-family: var(--klo-mono);
+      font-size: 11.5px;
+      letter-spacing: 0.02em;
+      color: var(--fg);
+      cursor: pointer;
+      transition: border-color 160ms, background 160ms, transform 120ms;
+    }
+    .empty-hint-chip:hover {
+      border-color: var(--brand-color, rgba(168, 193, 82, 0.55));
+      transform: scale(1.02);
+    }
+    .empty-hint-chip img {
+      width: 14px;
+      height: 14px;
+      object-fit: contain;
+      flex: 0 0 14px;
+    }
+    .empty-hint-trailer {
+      font-family: var(--klo-mono);
+      font-size: 11px;
+      color: var(--fg-45);
+      line-height: 1.6;
+      max-width: 220px;
+      letter-spacing: 0.04em;
+    }
+    .body::-webkit-scrollbar { width: 5px; }
+    .body::-webkit-scrollbar-track { background: transparent; }
+    .body::-webkit-scrollbar-thumb {
+      background: var(--border);
+      border-radius: 3px;
+    }
+
+    /* Conversation turns. The role labels are kept in the DOM for screen
+       readers and to preserve the existing JS contract, but visually we
+       reduce them to a very quiet whisper so the messages themselves
+       carry the page. User vs klo is differentiated by typographic
+       weight, not by colored eyebrows or background bubbles. */
+    .msg { display: flex; flex-direction: column; gap: 4px; }
+    .msg-role {
+      font-family: "JetBrains Mono", ui-monospace, monospace;
+      font-size: 9px;
+      letter-spacing: 0.04em;
+      text-transform: lowercase;
+      color: var(--fg-45);
+      line-height: 1;
+    }
+    .msg-text {
+      white-space: pre-wrap;
+      word-wrap: break-word;
+      font-size: 14px;
+      line-height: 1.6;
+      color: var(--fg);
+    }
+    .msg.is-user .msg-text { font-weight: 500; }
+    .msg.is-assistant .msg-text { color: var(--fg-80); }
+
+    .msg-text a {
+      color: var(--klo-olive);
+      text-decoration: underline;
+      text-underline-offset: 2px;
+    }
+    .msg-text a:hover { color: var(--klo-oliveHi); }
+    .msg-text strong { color: var(--fg); font-weight: 600; }
+    .msg-text code {
+      font-family: "JetBrains Mono", ui-monospace, monospace;
+      font-size: 12px;
+      padding: 1px 5px;
+      background: var(--bg-input);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      color: var(--fg);
+    }
+    .msg-text pre {
+      font-family: "JetBrains Mono", ui-monospace, monospace;
+      font-size: 11.5px;
+      background: var(--bg-input);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 10px 12px;
+      overflow-x: auto;
+      margin: 8px 0 0;
+      color: var(--fg);
+      line-height: 1.55;
+    }
+    .msg-text pre code {
+      background: transparent;
+      border: none;
+      padding: 0;
+    }
+    /* Errors stay legible. We tag them with the role label tinted red
+       and a thin red rail to the left of the message — the body text
+       itself stays the normal reading color so the user doesn't have
+       to parse a wall of red. */
+    .msg.is-error { padding-left: 10px; border-left: 2px solid rgba(220, 38, 38, 0.55); }
+    .msg.is-error .msg-role { color: var(--error); }
+    .msg.is-error .msg-text { color: var(--fg-80); }
+
+    /* Tool activity entries — one line per tool call the agent fires.
+       Compact, monospace, prefixed with → so they read as actions
+       rather than chat. Renders pending → done/failed states inline.
+       Lets the user watch klo work step by step. */
+    .msg-tool {
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+      font-family: "JetBrains Mono", ui-monospace, monospace;
+      font-size: 11.5px;
+      color: var(--fg-60);
+      line-height: 1.4;
+      padding: 0 2px;
+    }
+    .msg-tool-arrow {
+      color: var(--fg-45);
+      flex: 0 0 auto;
+    }
+    .msg-tool.is-pending .msg-tool-text { color: var(--fg-60); opacity: 0.85; }
+    .msg-tool.is-pending .msg-tool-arrow { color: var(--klo-olive); }
+    .msg-tool.is-done    .msg-tool-text { color: var(--fg-60); }
+    .msg-tool.is-done    .msg-tool-arrow { color: var(--success); }
+    .msg-tool.is-error   .msg-tool-text { color: var(--error); }
+    .msg-tool.is-error   .msg-tool-arrow { color: var(--error); }
+
+    /* Stuck banner — surfaces when the heartbeat watchdog fires (SW
+       died) or the elapsed timer crosses 60s. Distinct from
+       .msg.is-error so it reads as a system-level alert, not a klo
+       turn that happened to error. Inline retry button re-issues the
+       last user prompt. */
+    .msg-stuck {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 14px;
+      border: 1px solid rgba(168, 193, 82, 0.40);
+      background: rgba(168, 193, 82, 0.07);
+      border-radius: 12px;
+      font-size: 13px;
+      color: var(--fg-80);
+      line-height: 1.4;
+    }
+    .msg-stuck-text { flex: 1; }
+    .msg-stuck-retry {
+      flex: 0 0 auto;
+      padding: 7px 14px;
+      background: var(--klo-olive);
+      color: var(--klo-black);
+      border: none;
+      border-radius: 999px;
+      font: inherit;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 120ms;
+    }
+    .msg-stuck-retry:hover { background: var(--klo-oliveHi); }
+
+    /* Inline connection banner — bridge (Mac app) health, promoted out
+       of the developer menu. Calm amber strip above the input, not an
+       error bubble: the chat still works without the Mac app. */
+    .conn-banner {
+      display: none;
+      flex: 0 0 auto;
+      margin: 0 12px 6px;
+      padding: 7px 12px;
+      border: 1px solid rgba(180, 83, 9, 0.35);
+      background: rgba(180, 83, 9, 0.08);
+      border-radius: 10px;
+      font-family: var(--klo-mono);
+      font-size: 11px;
+      letter-spacing: 0.02em;
+      color: var(--fg-80);
+      line-height: 1.4;
+    }
+    .conn-banner.is-visible { display: block; }
+
+    /* Paywall variant — used when /chat/llm-turn returns 402. Renders
+       as an orange-tinted card with an embedded Upgrade button so the
+       user can act without dropping back to the upsell pane. */
+    .msg.is-paywall {
+      padding: 14px 14px 13px;
+      border-left: none;
+      border: 1px solid rgba(168, 193, 82, 0.32);
+      background: rgba(168, 193, 82, 0.07);
+      border-radius: 12px;
+    }
+    .msg.is-paywall .msg-role { color: var(--klo-olive); }
+    .msg.is-paywall .msg-text { color: var(--fg); margin-bottom: 10px; }
+    .msg.is-paywall .msg-cta {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 9px 16px;
+      background: var(--klo-olive);
+      color: var(--klo-black);
+      border: none;
+      border-radius: 999px;
+      font: inherit;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 120ms, transform 120ms;
+    }
+    .msg.is-paywall .msg-cta:hover { background: var(--klo-oliveHi); transform: scale(1.02); }
+    .msg.is-paywall .msg-cta:disabled { opacity: 0.5; cursor: default; }
+
+    /* ─── Inline Composio auth-required card ────────────────────────
+       Single-row card. Border picks up the toolkit's brand color
+       (Gmail red, Notion grey, Slack purple, etc.) so the affordance
+       reads as "this is about <X>" at a glance. Smooth state machine:
+       idle → opening (brand fill on the CTA, mini spinner) → success
+       (cream check, brief hold) → fade out. Mirrors iOS
+       AuthInterruptCard.swift but tighter and brand-aware. */
+    .msg-auth-card {
+      display: flex;
+      align-items: center;
+      gap: 11px;
+      padding: 10px 11px 10px 12px;
+      border: 0.75px solid var(--brand-edge, rgba(168, 193, 82, 0.45));
+      border-radius: 14px;
+      background:
+        linear-gradient(to right,
+          var(--brand-tint, rgba(168, 193, 82, 0.04)) 0%,
+          rgba(241, 236, 229, 0.02) 100%);
+      transition: border-color 220ms, background 220ms, opacity 280ms, transform 280ms;
+      animation: msg-auth-in 280ms cubic-bezier(0.2, 0.9, 0.3, 1) both;
+    }
+    @keyframes msg-auth-in {
+      0%   { opacity: 0; transform: translateY(6px) scale(0.985); }
+      100% { opacity: 1; transform: translateY(0) scale(1); }
+    }
+    .msg-auth-card.is-fading {
+      opacity: 0;
+      transform: translateY(-2px) scale(0.99);
+      pointer-events: none;
+    }
+    .msg-auth-tile {
+      width: 30px;
+      height: 30px;
+      border-radius: 8px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      background: rgba(241, 236, 229, 0.06);
+      flex: 0 0 30px;
+    }
+    .msg-auth-tile img { width: 22px; height: 22px; object-fit: contain; }
+    .msg-auth-tile.monogram {
+      background: var(--brand-tint, rgba(168, 193, 82, 0.18));
+      color: var(--brand-color, var(--klo-olive));
+      font-family: var(--klo-mono);
+      font-size: 11px;
+      font-weight: 600;
+    }
+    .msg-auth-body {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 1px;
+    }
+    .msg-auth-title {
+      font-size: 13px;
+      color: var(--fg);
+      line-height: 1.3;
+      letter-spacing: -0.005em;
+    }
+    .msg-auth-sub {
+      font-family: var(--klo-mono);
+      font-size: 10.5px;
+      color: var(--fg-60);
+      line-height: 1.4;
+    }
+    .msg-auth-cta {
+      flex: 0 0 auto;
+      padding: 6px 13px;
+      background: transparent;
+      color: var(--fg);
+      border: 0.75px solid var(--brand-edge, rgba(168, 193, 82, 0.55));
+      border-radius: 999px;
+      font-family: var(--klo-mono);
+      font-size: 11px;
+      letter-spacing: 0.05em;
+      text-transform: lowercase;
+      cursor: pointer;
+      transition: background 160ms, border-color 160ms, color 160ms;
+    }
+    .msg-auth-cta:hover {
+      background: var(--brand-tint, rgba(168, 193, 82, 0.10));
+      border-color: var(--brand-color, rgba(168, 193, 82, 0.85));
+    }
+    .msg-auth-cta:disabled { opacity: 0.55; cursor: default; }
+    /* Mini spinner — replaces the pulse dot during OAuth. Same vibe
+       as the composio-callback page's progress disc so the user sees
+       continuity between surfaces. */
+    .msg-auth-spinner {
+      width: 14px;
+      height: 14px;
+      border: 1.5px solid transparent;
+      border-top-color: var(--brand-color, var(--klo-olive));
+      border-right-color: var(--brand-color, var(--klo-olive));
+      border-radius: 50%;
+      animation: msg-auth-spin 0.7s linear infinite;
+      flex: 0 0 auto;
+      display: none;
+    }
+    @keyframes msg-auth-spin { to { transform: rotate(360deg); } }
+    /* Connected checkmark — cream disc holding a brand-colored tick. */
+    .msg-auth-check {
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: var(--brand-color, var(--klo-olive));
+      flex: 0 0 auto;
+      display: none;
+      align-items: center;
+      justify-content: center;
+    }
+    .msg-auth-check::after {
+      content: "";
+      width: 6px; height: 10px;
+      border-right: 1.6px solid var(--klo-black);
+      border-bottom: 1.6px solid var(--klo-black);
+      transform: rotate(45deg) translate(-1px, -1px);
+    }
+    /* State transitions. The CTA, spinner, and check are mutually
+       exclusive — only one shows at a time. */
+    .msg-auth-card.is-connecting .msg-auth-cta { display: none; }
+    .msg-auth-card.is-connecting .msg-auth-spinner { display: inline-block; }
+    .msg-auth-card.is-connected .msg-auth-cta,
+    .msg-auth-card.is-connected .msg-auth-spinner { display: none; }
+    .msg-auth-card.is-connected .msg-auth-check { display: inline-flex; }
+
+    /* ─── Status pill ──────────────────────────────────────────────── */
+    .status {
+      display: none;
+      align-items: center;
+      gap: 9px;
+      padding: 10px 18px;
+      font-size: 11px;
+      color: var(--fg-60);
+      font-family: "JetBrains Mono", ui-monospace, monospace;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      border-top: 1px solid var(--border-faint);
+      flex: 0 0 auto;
+    }
+    .status.is-visible { display: flex; }
+    .pulse {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--klo-olive);
+      box-shadow: 0 0 8px rgba(168, 193, 82, 0.55);
+      animation: pulse 1.2s ease-in-out infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 0.45; transform: scale(1); }
+      50%      { opacity: 1; transform: scale(1.35); }
+    }
+
+    /* ─── Slash-command popover (/mcp toolkit picker) ──────────────────
+       Floats above the input row when the user types "/<prefix>". Mirrors
+       ios/KLO/Components/ScopeChipInput.swift: brand glyph + display
+       name, top-row highlighted as the enter-to-pick target. */
+    .slash-popover {
+      position: absolute;
+      left: 12px;
+      right: 12px;
+      bottom: calc(100% + 4px);
+      background: var(--bg-soft);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 6px;
+      box-shadow:
+        0 14px 32px rgba(0, 0, 0, 0.55),
+        0 0 0 1px rgba(168, 193, 82, 0.10);
+      display: none;
+      max-height: 240px;
+      overflow-y: auto;
+      z-index: 50;
+    }
+    .input-wrap.has-slash .slash-popover { display: block; }
+    .slash-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 9px 12px;
+      border-radius: 10px;
+      cursor: pointer;
+      transition: background 100ms;
+    }
+    .slash-row:hover,
+    .slash-row.is-active {
+      background: rgba(168, 193, 82, 0.08);
+    }
+    .slash-row.is-active { background: rgba(168, 193, 82, 0.14); }
+    .slash-row-icon {
+      width: 22px;
+      height: 22px;
+      border-radius: 6px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      background: rgba(241, 236, 229, 0.06);
+      flex: 0 0 22px;
+    }
+    .slash-row-icon img { width: 18px; height: 18px; object-fit: contain; }
+    .slash-row-icon.monogram {
+      background: var(--brand-tint, rgba(168, 193, 82, 0.18));
+      color: var(--brand-color, var(--klo-olive));
+      font-family: var(--klo-mono);
+      font-size: 10px;
+      font-weight: 600;
+    }
+    .slash-row-name {
+      flex: 1;
+      font-size: 13px;
+      color: var(--fg);
+      line-height: 1.2;
+    }
+    .slash-row-slug {
+      font-family: var(--klo-mono);
+      font-size: 10px;
+      letter-spacing: 0.06em;
+      color: var(--fg-45);
+    }
+    .slash-row-enter {
+      font-family: var(--klo-mono);
+      font-size: 11px;
+      color: var(--fg-45);
+      display: none;
+    }
+    .slash-row.is-active .slash-row-enter { display: inline; }
+    /* "connected" badge — mirrors desktop-mac TextInputView.suggestionRow.
+       Olive-on-olive tint when this toolkit is in the user's profile so
+       the picker doubles as a glance-able connection status. */
+    .slash-row-status {
+      font-family: var(--klo-mono);
+      font-size: 9px;
+      letter-spacing: 0.06em;
+      padding: 2px 7px;
+      border: none;
+      border-radius: 999px;
+      color: var(--klo-olive);
+      background: rgba(168, 193, 82, 0.14);
+      display: none;
+      cursor: pointer;
+      transition: color 120ms, background 120ms;
+    }
+    .slash-row.is-connected .slash-row-status { display: inline; }
+    .slash-row.is-connected .slash-row-status:hover:not(:disabled),
+    .slash-row.is-confirm .slash-row-status {
+      color: var(--error);
+      background: rgba(220, 38, 38, 0.12);
+    }
+    .slash-row-status:disabled { cursor: default; opacity: 0.7; }
+    .input-wrap {
+      position: relative;
+      flex: 0 0 auto;
+    }
+
+    /* ─── Input bar ────────────────────────────────────────────────────
+       Single outlined capsule that contains everything — cream klo
+       glyph on the left, mono textarea, apps button (opens the toolkit
+       picker), send button on the right. Mirrors iOS ScopeChipInput
+       pixel-for-pixel: olive hairline border that brightens when the
+       user starts typing; 28x28 send circle with breathing glow. */
+    .input-row {
+      flex: 0 0 auto;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 14px;
+      margin: 0 12px 8px;
+      border-radius: 16px;
+      border: 0.75px solid rgba(168, 193, 82, 0.30);
+      background: transparent;
+      position: relative;
+      transition: border-color 180ms;
+    }
+    .input-row:focus-within { border-color: rgba(168, 193, 82, 0.45); }
+    .input-row.has-input { border-color: rgba(168, 193, 82, 0.55); }
+    .input-glyph {
+      flex: 0 0 16px;
+      width: 16px;
+      height: 16px;
+      opacity: 0.45;
+      user-select: none;
+      -webkit-user-drag: none;
+      pointer-events: none;
+    }
+    .input {
+      flex: 1;
+      background: transparent;
+      border: none;
+      padding: 4px 0;
+      color: var(--fg);
+      font-family: var(--klo-mono);
+      font-size: 14px;
+      letter-spacing: 0.01em;
+      line-height: 1.45;
+      resize: none;
+      outline: none;
+      max-height: 140px;
+      min-height: 20px;
+    }
+    .input::placeholder { color: var(--fg-45); }
+
+    /* Apps button — opens the toolkit picker without typing /. Same
+       outline-only treatment as the send circle, just with the
+       hairline only and a + glyph. */
+    .apps-btn {
+      flex: 0 0 28px;
+      width: 28px;
+      height: 28px;
+      border-radius: 999px;
+      background: transparent;
+      color: rgba(241, 236, 229, 0.55);
+      border: 0.75px solid rgba(241, 236, 229, 0.18);
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      transition: color 120ms, border-color 120ms, background 120ms;
+    }
+    .apps-btn:hover {
+      color: var(--klo-olive);
+      border-color: rgba(168, 193, 82, 0.55);
+      background: rgba(168, 193, 82, 0.06);
+    }
+    .apps-btn svg { display: block; }
+    .input-row.has-slash .apps-btn { color: var(--klo-olive); border-color: rgba(168, 193, 82, 0.55); }
+
+    /* Send button — outline-only olive circle, breathing glow when
+       there's text to send. Matches SignInScreen.sendButton. */
+    .send-btn-wrap {
+      position: relative;
+      flex: 0 0 28px;
+    }
+    .send-btn-glow {
+      position: absolute;
+      inset: -3px;
+      border-radius: 999px;
+      pointer-events: none;
+      display: none;
+    }
+    .input-row.has-input .send-btn-glow {
+      display: block;
+      animation: send-breathe 2.4s ease-in-out infinite;
+    }
+    @keyframes send-breathe {
+      0%, 100% { box-shadow: 0 0 8px rgba(168,193,82,0.18), 0 0 14px rgba(168,193,82,0.08); }
+      50%      { box-shadow: 0 0 14px rgba(168,193,82,0.36), 0 0 28px rgba(168,193,82,0.16); }
+    }
+    .send-btn {
+      position: relative;
+      z-index: 1;
+      width: 28px;
+      height: 28px;
+      background: transparent;
+      color: var(--fg);
+      border: 0.75px solid rgba(241, 236, 229, 0.18);
+      border-radius: 999px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      transition: border-color 120ms, opacity 120ms;
+      opacity: 0.35;
+    }
+    .send-btn svg { display: block; }
+    .send-btn:disabled { cursor: default; }
+    .input-row.has-input .send-btn:not(:disabled) {
+      opacity: 1;
+      border-color: rgba(168, 193, 82, 0.55);
+    }
+
+    /* Stop button — same 28x28 circle as send, outline-only olive
+       tint so it reads as "press to halt" without screaming. Hidden
+       until .is-working flips on. */
+    .stop-btn {
+      display: none;
+      width: 28px;
+      height: 28px;
+      background: rgba(168, 193, 82, 0.10);
+      color: var(--klo-olive);
+      border: 0.75px solid rgba(168, 193, 82, 0.55);
+      border-radius: 999px;
+      cursor: pointer;
+      align-items: center;
+      justify-content: center;
+      transition: background 120ms, transform 120ms;
+    }
+    .stop-btn:hover {
+      background: rgba(168, 193, 82, 0.20);
+      border-color: rgba(168, 193, 82, 0.85);
+      transform: scale(1.04);
+    }
+    .stop-btn svg { display: block; }
+    .input-row.is-working .send-btn-wrap { display: none; }
+    .input-row.is-working .stop-btn { display: flex; }
+
+    /* Fiery glow around the panel while the agent is working. Pulses
+       on the body so it reads as the WHOLE surface being live, not
+       just the input. Easy on the eyes — no shadow expansion that
+       would shift layout, just an animated box-shadow. */
+    @keyframes klo-fire-glow {
+      0%, 100% {
+        box-shadow:
+          inset 0 0 0 1px rgba(168, 193, 82, 0.45),
+          inset 0 0 18px rgba(168, 193, 82, 0.16);
+      }
+      50% {
+        box-shadow:
+          inset 0 0 0 1.5px rgba(168, 193, 82, 0.75),
+          inset 0 0 32px rgba(168, 193, 82, 0.32);
+      }
+    }
+    body.is-working {
+      animation: klo-fire-glow 2.4s ease-in-out infinite;
+    }
+
+    /* Single-line, ungarnished footer hint. The keycap pills got dropped
+       because the panel already shows the ⌘K affordance up in the
+       header, and ↵-to-send is the universal default. We keep only
+       the toggle hint, lowercased, no kbd boxes. */
+    .footer-hint {
+      flex: 0 0 auto;
+      font-family: "JetBrains Mono", ui-monospace, monospace;
+      font-size: 9px;
+      color: var(--fg-45);
+      padding: 0 18px 10px;
+      text-align: center;
+      letter-spacing: 0.18em;
+      text-transform: lowercase;
+    }
+    .footer-hint kbd {
+      font-family: inherit;
+      font-size: 9px;
+      padding: 0;
+      background: transparent;
+      border: none;
+      color: var(--fg-60);
+    }
+
+    /* ─── Menu dropdown ────────────────────────────────────────────── */
+    .menu {
+      position: absolute;
+      top: 44px;
+      right: 12px;
+      background: var(--bg-soft);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 6px;
+      z-index: 100;
+      box-shadow:
+        0 14px 32px rgba(0, 0, 0, 0.45),
+        0 0 0 1px rgba(168, 193, 82, 0.06);
+      display: none;
+      min-width: 170px;
+    }
+    .menu.is-visible { display: block; }
+    .menu button {
+      display: block;
+      width: 100%;
+      text-align: left;
+      background: transparent;
+      border: none;
+      padding: 7px 11px;
+      font: inherit;
+      font-size: 13px;
+      color: var(--fg-80);
+      border-radius: 7px;
+      cursor: pointer;
+    }
+    .menu button:hover {
+      background: rgba(168, 193, 82, 0.08);
+      color: var(--fg);
+    }
+    .menu .menu-divider {
+      height: 1px;
+      background: var(--border-faint);
+      margin: 5px 4px;
+    }
+    .menu .menu-section {
+      font-family: "JetBrains Mono", ui-monospace, monospace;
+      font-size: 9px;
+      color: var(--fg-45);
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      padding: 6px 11px 3px;
+    }
+    .bridge-status {
+      padding: 4px 11px;
+      font-family: "JetBrains Mono", ui-monospace, monospace;
+      font-size: 10px;
+      color: var(--fg-45);
+      letter-spacing: 0.05em;
+      cursor: default;
+    }
+    .bridge-status.is-waiting {
+      color: var(--klo-olive);
+      cursor: pointer;
+    }
+    .bridge-status.is-waiting:hover { color: var(--klo-oliveHi); }
+    .bridge-dot {
+      display: inline-block;
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--fg-45);
+      margin-right: 6px;
+      vertical-align: middle;
+    }
+    .bridge-dot.ok  { background: var(--klo-olive); box-shadow: 0 0 6px rgba(168, 193, 82, 0.45); }
+    .bridge-dot.err { background: var(--error); }
+    .bridge-dot.waiting {
+      background: var(--klo-olive);
+      animation: bridge-pulse 1.4s ease-in-out infinite;
+    }
+    @keyframes bridge-pulse {
+      0%, 100% { opacity: 0.45; }
+      50%      { opacity: 1; }
+    }
+
+    /* ─── History dropdown ─────────────────────────────────────────────
+       Same anchored-dropdown pattern as .menu, but wider and scrollable
+       — it lists the user's previous conversations. Anchored under the
+       title pill so clicking the pill feels like opening a chat picker.
+    */
+    .history-menu {
+      position: absolute;
+      top: 44px;
+      left: 60px;
+      right: 12px;
+      max-height: min(60vh, 420px);
+      overflow-y: auto;
+      background: var(--bg-soft);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 6px;
+      z-index: 100;
+      box-shadow:
+        0 14px 32px rgba(0, 0, 0, 0.45),
+        0 0 0 1px rgba(168, 193, 82, 0.06);
+      display: none;
+    }
+    .history-menu.is-visible { display: block; }
+    .history-menu::-webkit-scrollbar { width: 5px; }
+    .history-menu::-webkit-scrollbar-track { background: transparent; }
+    .history-menu::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+    .history-empty {
+      padding: 18px 12px;
+      text-align: center;
+      font-size: 12px;
+      color: var(--fg-45);
+    }
+    .history-empty.is-hidden { display: none; }
+    .history-group-heading {
+      font-family: "JetBrains Mono", ui-monospace, monospace;
+      font-size: 9px;
+      color: var(--fg-45);
+      letter-spacing: 0.20em;
+      text-transform: uppercase;
+      padding: 6px 10px 2px;
+    }
+    /* Single-line rows. Title carries the load; the date stays as a
+       quiet trailing suffix; the second-line preview is dropped (kept
+       in the DOM so existing JS keeps writing to it without harm).
+       Tighter padding so 8-10 rows fit without scrolling. */
+    .history-row {
+      position: relative;
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+      width: 100%;
+      text-align: left;
+      background: transparent;
+      border: none;
+      padding: 5px 26px 5px 10px;
+      font: inherit;
+      color: var(--fg-80);
+      border-radius: 6px;
+      cursor: pointer;
+    }
+    .history-row:hover { background: rgba(168, 193, 82, 0.06); }
+    .history-row.is-active { background: rgba(168, 193, 82, 0.12); box-shadow: inset 2px 0 0 var(--klo-olive); }
+    .history-row.is-active .history-row-title { color: var(--fg); }
+    .history-row-title {
+      flex: 1;
+      min-width: 0;
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--fg);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      line-height: 1.4;
+    }
+    .history-row-meta { display: contents; }
+    .history-row-preview { display: none; }
+    .history-row-time {
+      font-family: "JetBrains Mono", ui-monospace, monospace;
+      font-size: 9px;
+      color: var(--fg-45);
+      letter-spacing: 0.05em;
+      flex: 0 0 auto;
+    }
+    .history-row-delete {
+      position: absolute;
+      top: 50%;
+      right: 6px;
+      transform: translateY(-50%);
+      width: 16px;
+      height: 16px;
+      border-radius: 4px;
+      background: transparent;
+      border: none;
+      color: var(--fg-45);
+      cursor: pointer;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      font-size: 13px;
+      line-height: 1;
+      padding: 0;
+    }
+    .history-row:hover .history-row-delete { display: flex; }
+    .history-row:hover .history-row-time { display: none; }
+    .history-row-delete:hover { background: var(--border-faint); color: var(--error); }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="klo-logo-white.png">
+      <img class="wordmark" src="klo-logo-black.png" alt="klo" />
+    </picture>
+    <!-- The title pill shows the active conversation's title, doubles
+         as the History toggle. The dot stays orange to keep the brand
+         pulse where it was when the pill said "browser". -->
+    <button class="header-tag" id="title-pill" title="Switch chats">
+      <span class="header-tag-dot"></span>
+      <span class="title-pill-text" id="title-pill-text">new chat</span>
+    </button>
+    <button class="header-apps" id="header-apps" title="Connected apps" aria-label="Connected apps">
+      <span class="header-apps-stack" id="header-apps-stack"></span>
+      <span class="header-apps-label" id="header-apps-label"></span>
+    </button>
+    <div class="header-spacer"></div>
+    <button class="menu-btn" id="menu-btn" title="Menu">⋯</button>
+    <div class="menu" id="menu">
+      <div class="menu-section">Chats</div>
+      <button id="m-new-chat">New chat</button>
+      <button id="m-history">Previous chats</button>
+      <div class="menu-divider"></div>
+      <div class="menu-section">Apps</div>
+      <button id="m-apps">Browse apps</button>
+      <div class="menu-divider"></div>
+      <div class="menu-section">Account</div>
+      <button id="m-signin">Sign in</button>
+      <button id="m-signout" style="display:none">Sign out</button>
+      <div class="menu-divider"></div>
+      <div class="menu-section">Developer</div>
+      <div class="bridge-status" id="bridge-status-row" role="button" tabindex="0">
+        <span class="bridge-dot" id="bridge-dot"></span>
+        <span id="bridge-status">bridge: idle</span>
+      </div>
+      <button id="m-reconnect">Reconnect bridge</button>
+    </div>
+    <!-- History dropdown anchored under the title pill. Same dropdown
+         pattern as .menu — a single source of truth for "list of
+         conversations" used by both the title-pill click and the
+         "Previous chats" menu item. -->
+    <div class="history-menu" id="history-menu">
+      <div class="history-empty" id="history-empty">No previous chats yet.</div>
+      <div class="history-list" id="history-list"></div>
+    </div>
+  </div>
+
+  <!-- Sign-in surface — minimal: just email + send + tiny terms link.
+       Slanted, low-opacity klo wordmark sits behind the form as the
+       only decorative element. -->
+  <div class="signin" id="signin-pane">
+    <!-- Soft olive bloom — the CSS echo of MiniFireView on iOS. -->
+    <div class="signin-bg" aria-hidden="true"></div>
+    <div class="signin-form">
+      <!-- Cream wordmark, 36pt high — matches the iOS SignInScreen
+           glyph treatment. White PNG reads close enough to cream
+           against the near-black surface that the tonal drift is
+           imperceptible, and avoids the SVG currentColor song-and-dance. -->
+      <img class="signin-glyph" src="klo-logo-white.png" alt="klo" draggable="false" />
+      <!-- Metadata-style tagline: two thin olive rules flanking the
+           wide-tracked monospace line. Rotates every 3.6s, same
+           rhythm as SignInScreen.startTaglineRotation. -->
+      <div class="signin-tagline" aria-hidden="true">
+        <span class="signin-tagline-rule"></span>
+        <span class="signin-tagline-text" id="signin-tagline-text">drive your chrome with klo</span>
+        <span class="signin-tagline-rule"></span>
+      </div>
+      <div class="signin-firstrun-note" id="signin-firstrun-note">
+        first time? sign in with google, then hit <kbd>⌥K</kbd> on any tab to talk to klo.
+      </div>
+      <!-- Outline-only capsule. Cream disc holds the Google G on the
+           left; lowercase mono label sits to the right. The breathing
+           olive glow lives in a sibling element so disabled state can
+           pause it. -->
+      <div class="signin-cta-wrap" id="signin-cta-wrap">
+        <button class="btn-primary" id="signin-btn" type="button">
+          <span class="g-disc" aria-hidden="true">
+            <svg viewBox="0 0 18 18">
+              <path fill="#4285F4" d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.8 2.72v2.26h2.92c1.7-1.57 2.68-3.88 2.68-6.62z"/>
+              <path fill="#34A853" d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.92-2.26c-.81.54-1.84.86-3.04.86-2.34 0-4.32-1.58-5.03-3.7H.96v2.32A9 9 0 0 0 9 18z"/>
+              <path fill="#FBBC05" d="M3.97 10.72A5.4 5.4 0 0 1 3.68 9c0-.6.1-1.18.29-1.72V4.96H.96A9 9 0 0 0 0 9c0 1.45.35 2.82.96 4.04l3.01-2.32z"/>
+              <path fill="#EA4335" d="M9 3.58c1.32 0 2.5.45 3.44 1.35l2.58-2.58C13.46.89 11.43 0 9 0A9 9 0 0 0 .96 4.96l3.01 2.32C4.68 5.16 6.66 3.58 9 3.58z"/>
+            </svg>
+          </span>
+          <span class="g-label" id="signin-btn-label">continue with google</span>
+        </button>
+        <span class="signin-cta-glow" aria-hidden="true"></span>
+      </div>
+
+      <div class="signin-feedback" id="signin-feedback"></div>
+
+      <div class="terms">
+        by continuing you agree to our <a href="https://getklo.com/terms" target="_blank">terms</a> and <a href="https://getklo.com/privacy" target="_blank">privacy policy</a>
+      </div>
+    </div>
+  </div>
+
+  <!-- Upsell surface — signed-in, no active subscription. Same iOS
+       SignInScreen vocabulary as the sign-in pane: cream wordmark,
+       olive-ruled tagline, font-light headline (the value prop verbatim),
+       monospace price line, outline-only Stripe CTA with breathing glow. -->
+  <div class="upsell" id="upsell-pane">
+    <img class="upsell-glyph" src="klo-logo-white.png" alt="klo" draggable="false" />
+    <div class="upsell-tag" aria-hidden="true">
+      <span class="upsell-tag-rule"></span>
+      <span class="upsell-tag-text">SUBSCRIBE TO KLO</span>
+      <span class="upsell-tag-rule"></span>
+    </div>
+    <h2>Tell it<br/>what to do.</h2>
+    <p class="upsell-lede">$20/mo · cancel anytime</p>
+    <div class="upsell-cta-wrap" id="upsell-cta-wrap">
+      <button type="button" class="upsell-cta" id="upsell-cta">
+        <span class="lock-disc" aria-hidden="true">
+          <svg viewBox="0 0 16 16" fill="none">
+            <path d="M4.5 7V5.25A3.5 3.5 0 0 1 8 1.75a3.5 3.5 0 0 1 3.5 3.5V7M3.5 7h9v6.5a.75.75 0 0 1-.75.75h-7.5a.75.75 0 0 1-.75-.75V7z" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </span>
+        <span class="upsell-cta-label" id="upsell-cta-label">subscribe with stripe</span>
+      </button>
+      <span class="upsell-cta-glow" aria-hidden="true"></span>
+    </div>
+    <button type="button" class="upsell-already" id="upsell-already-subscribed">i already subscribed</button>
+    <p class="upsell-fineprint">stripe · secure checkout</p>
+  </div>
+
+  <!-- Chat surface -->
+  <div class="chat" id="chat-pane">
+    <div class="body" id="body"></div>
+    <!-- Inline connection health — promoted out of the developer menu.
+         Shows when the Mac-app bridge drops after having been live. -->
+    <div class="conn-banner" id="conn-banner"></div>
+    <div class="status" id="status">
+      <span class="pulse"></span>
+      <span class="status-text" id="status-text">working</span>
+    </div>
+    <div class="input-row" id="input-row">
+      <div class="slash-popover" id="slash-popover" role="listbox" aria-label="Slash command suggestions"></div>
+      <textarea class="input" id="input" rows="1" placeholder="tell klo what to do, or /app to scope it" autofocus></textarea>
+      <span class="send-btn-wrap">
+        <button class="send-btn" id="send-btn" title="Send" aria-label="Send">
+          <svg width="11" height="11" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+            <path d="M6 10V2M6 2L2.5 5.5M6 2L9.5 5.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+        <span class="send-btn-glow" aria-hidden="true"></span>
+      </span>
+      <button class="stop-btn" id="stop-btn" title="Stop klo (esc)" aria-label="Stop klo">
+        <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor" aria-hidden="true">
+          <rect x="1.5" y="1.5" width="7" height="7" rx="1.2" />
+        </svg>
+      </button>
+    </div>
+    <div class="footer-hint">
+      <kbd>⌥K</kbd> toggles klo
+    </div>
+  </div>
+
+  <script src="lib/composio.js"></script>
+  <script src="sidepanel.js"></script>
+</body>
+</html>

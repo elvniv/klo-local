@@ -1,0 +1,124 @@
+#!/bin/bash
+# klo-install — set up klo to auto-start at login.
+#
+# Installs a macOS LaunchAgent at ~/Library/LaunchAgents/com.klo.desktop_api.plist
+# that runs `python -m agent2.desktop_api` whenever you log in. The agent is
+# kept alive by launchd — if the process crashes, it gets restarted within a
+# few seconds. After this you can reboot, hit ⌘K, and klo just works.
+#
+# The Electron desktop UI (the cmd+K orb) isn't auto-started here because we
+# don't have a packaged build yet. If you want the UI on at login too, add
+# the klo-agent-ui Electron app to System Settings → General → Login Items.
+#
+# Usage:
+#   bin/klo-install         # install + start now
+#   bin/klo-install --dry   # print the plist that would be installed, no changes
+
+set -e
+
+KLO_ROOT="${KLO_ROOT:-/Users/elvin/klo}"
+LABEL="com.klo.desktop_api"
+PLIST_PATH="$HOME/Library/LaunchAgents/${LABEL}.plist"
+LOG_PATH="/tmp/klo-launchd.log"
+ERR_PATH="/tmp/klo-launchd.err"
+
+DRY=0
+for arg in "$@"; do
+  case "$arg" in
+    --dry|--dry-run) DRY=1 ;;
+  esac
+done
+
+# Resolve uv binary so the LaunchAgent has an absolute path (launchd doesn't
+# read your shell's PATH).
+UV_BIN="$(command -v uv || true)"
+if [ -z "$UV_BIN" ]; then
+  echo "✗ couldn't find 'uv' on PATH. Install with: brew install uv" >&2
+  exit 1
+fi
+
+# Forward ANTHROPIC_API_KEY and OPENAI_API_KEY from the user's .env so the
+# LaunchAgent doesn't need to source it itself. We read them at install time
+# rather than at run time so the plist is self-contained.
+if [ -f "$KLO_ROOT/.env" ]; then
+  ANTHROPIC_API_KEY="$(grep '^ANTHROPIC_API_KEY=' "$KLO_ROOT/.env" | cut -d'=' -f2- || true)"
+  OPENAI_API_KEY="$(grep '^OPENAI_API_KEY=' "$KLO_ROOT/.env" | cut -d'=' -f2- || true)"
+fi
+
+PLIST=$(cat <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>${LABEL}</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>${UV_BIN}</string>
+        <string>run</string>
+        <string>python</string>
+        <string>-m</string>
+        <string>agent2.desktop_api</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>${KLO_ROOT}</string>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <dict>
+        <key>SuccessfulExit</key>
+        <false/>
+    </dict>
+    <key>ThrottleInterval</key>
+    <integer>5</integer>
+    <key>StandardOutPath</key>
+    <string>${LOG_PATH}</string>
+    <key>StandardErrorPath</key>
+    <string>${ERR_PATH}</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+        <key>ANTHROPIC_API_KEY</key>
+        <string>${ANTHROPIC_API_KEY}</string>
+        <key>OPENAI_API_KEY</key>
+        <string>${OPENAI_API_KEY}</string>
+    </dict>
+</dict>
+</plist>
+EOF
+)
+
+if [ "$DRY" = "1" ]; then
+  printf "%s\n" "$PLIST"
+  echo
+  echo "(would write to $PLIST_PATH and launchctl load it)"
+  exit 0
+fi
+
+mkdir -p "$HOME/Library/LaunchAgents"
+
+# If already loaded, unload first so changes take effect.
+if launchctl list | grep -q "$LABEL"; then
+  echo "klo-install: stopping existing $LABEL"
+  launchctl unload "$PLIST_PATH" 2>/dev/null || true
+fi
+
+printf "%s\n" "$PLIST" > "$PLIST_PATH"
+echo "klo-install: wrote $PLIST_PATH"
+
+launchctl load "$PLIST_PATH"
+echo "klo-install: loaded $LABEL — desktop_api will run at every login"
+
+# Sanity-check it came up.
+sleep 2
+if curl -s -m 2 http://127.0.0.1:8787/health >/dev/null 2>&1; then
+  echo "klo-install: ✓ desktop_api responding on :8787"
+else
+  echo "klo-install: ! desktop_api not responding yet — check logs:"
+  echo "    tail -f $LOG_PATH $ERR_PATH"
+fi
+
+echo
+echo "Done. Reboot, hit ⌘K — klo will be there."
+echo "Uninstall with: bin/klo-uninstall"

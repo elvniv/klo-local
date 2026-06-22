@@ -1,0 +1,30 @@
+name: Bug report
+description: Report something broken in KLO Local
+labels: ["bug"]
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: What happened?
+      description: Include what you expected and what actually happened.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Reproduction steps
+      placeholder: |
+        1. Start klo-api
+        2. Load the extension
+        3. Run ...
+    validations:
+      required: true
+  - type: input
+    id: macos
+    attributes:
+      label: macOS version
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or screenshots
+      description: Redact private data before posting.

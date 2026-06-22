@@ -1,0 +1,28 @@
+#!/bin/bash
+# klo-uninstall — remove the LaunchAgent installed by klo-install.
+
+set -e
+
+LABEL="com.klo.desktop_api"
+PLIST_PATH="$HOME/Library/LaunchAgents/${LABEL}.plist"
+
+if [ ! -f "$PLIST_PATH" ]; then
+  echo "klo-uninstall: $PLIST_PATH not found — nothing to do."
+  exit 0
+fi
+
+echo "klo-uninstall: stopping $LABEL"
+launchctl unload "$PLIST_PATH" 2>/dev/null || true
+
+rm -f "$PLIST_PATH"
+echo "klo-uninstall: removed $PLIST_PATH"
+
+# Stop any running desktop_api the LaunchAgent may have spawned.
+pids=$(lsof -ti :8787 2>/dev/null || true)
+if [ -n "$pids" ]; then
+  echo "klo-uninstall: stopping desktop_api on :8787"
+  echo "$pids" | xargs kill -9 2>/dev/null || true
+fi
+
+echo "Done. klo will no longer auto-start at login."
+echo "(use bin/klo-up to start it manually for development)"
